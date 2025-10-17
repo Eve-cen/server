@@ -5,7 +5,8 @@ const dotenv = require("dotenv");
 const authRoutes = require("./routes/auth");
 const propertyRoutes = require("./routes/properties");
 const categoryRoutes = require("./routes/categories");
-const bookingRoutes = require("./routes/bookings"); // New
+const bookingRoutes = require("./routes/bookings");
+const settingsRoutes = require("./routes/settings");
 
 dotenv.config({ path: "./config.env" });
 
@@ -25,7 +26,8 @@ mongoose
 app.use("/api/auth", authRoutes);
 app.use("/api/properties", propertyRoutes);
 app.use("/api/categories", categoryRoutes);
-app.use("/api/bookings", bookingRoutes); // New
+app.use("/api/bookings", bookingRoutes);
+app.use("/api/settings", settingsRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
