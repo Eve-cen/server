@@ -10,6 +10,7 @@ const bookingSchema = new mongoose.Schema({
   checkIn: { type: Date, required: true },
   checkOut: { type: Date, required: true },
   totalPrice: { type: Number, required: true },
+  reviewed: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now },
 });
 
