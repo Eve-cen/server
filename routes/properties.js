@@ -4,6 +4,49 @@ const Category = require("../models/Category");
 const auth = require("../middleware/auth");
 const router = express.Router();
 
+router.post("/", auth, async (req, res) => {
+  const {
+    title,
+    description,
+    location,
+    coordinates,
+    images,
+    coverImage,
+    features,
+    extras,
+    pricing,
+    bookingSettings,
+    category,
+  } = req.body;
+
+  try {
+    const host = req.user.id;
+    const categoryDoc = await Category.findById(category);
+    if (!categoryDoc)
+      return res.status(404).json({ error: "Category not found" });
+
+    const property = new Property({
+      title,
+      description,
+      location,
+      coordinates,
+      images: images || [],
+      coverImage: coverImage || images?.[0],
+      features,
+      extras: extras || [],
+      pricing,
+      bookingSettings,
+      host,
+      category,
+    });
+
+    const savedProperty = await property.save();
+    res.status(201).json(savedProperty);
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 // Get property details by ID (GET /api/properties/:id)
 router.get("/:id", async (req, res) => {
   try {
