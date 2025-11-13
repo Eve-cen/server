@@ -23,34 +23,48 @@ router.get("/me", auth, async (req, res) => {
 
 // Login/Signup
 router.post("/login", async (req, res) => {
-  const { email, password } = req.body;
+  const { name, email, password } = req.body;
+
+  // Basic validation
+  if (!email || !password) {
+    return res.status(400).json({ error: "Email and password are required" });
+  }
 
   try {
-    let user = await User.findOne({ email });
+    const normalizedEmail = email.toLowerCase().trim();
+    let user = await User.findOne({ email: normalizedEmail });
 
     if (user) {
       // Login
       const isMatch = await bcrypt.compare(password, user.password);
-      if (!isMatch)
-        return res.status(400).json({ error: "Invalid credentials" });
+      if (!isMatch) {
+        return res.status(401).json({ error: "Invalid credentials" });
+      }
 
       const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
         expiresIn: "1h",
       });
-      return res.json({ token });
+
+      return res.json({ token, message: "Login successful" });
     }
 
     // Signup
     const hashedPassword = await bcrypt.hash(password, 10);
-    user = new User({ email, password: hashedPassword });
+    user = new User({
+      name: name,
+      email: normalizedEmail,
+      password: hashedPassword,
+    });
     await user.save();
 
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
       expiresIn: "1h",
     });
-    res.json({ token });
+
+    res.status(201).json({ token, message: "Account created and logged in" });
   } catch (err) {
-    res.status(500).json({ error: "Server error" });
+    console.error("Login error:", err);
+    res.status(500).json({ error: "Server error, please try again later" });
   }
 });
 
