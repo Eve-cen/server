@@ -62,12 +62,16 @@ const reviewSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
+// In your Property model file
 const propertySchema = new mongoose.Schema(
   {
     title: { type: String, required: true },
     description: { type: String, required: true },
-    price: { type: Number, required: true }, // Base price (can be overridden by weekdayPrice)
-    location: { type: String, required: true },
+    location: {
+      address: { type: String, required: true },
+      city: { type: String, required: true },
+      country: { type: String, required: true },
+    },
     coordinates: {
       latitude: { type: Number },
       longitude: { type: Number },
@@ -80,16 +84,29 @@ const propertySchema = new mongoose.Schema(
       sizeSQM: { type: Number, default: 0 },
       seatCapacity: { type: Number, default: 0 },
     },
-    extras: [extraSchema],
-    pricing: pricingSchema,
-    bookingSettings: bookingSettingsSchema,
-    host: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-    category: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Category",
-      required: true,
+    extras: [
+      {
+        name: String,
+        price: Number,
+      },
+    ],
+    pricing: {
+      weekdayPrice: { type: Number, required: true },
+      preTaxPrice: { type: Number },
+      discounts: {
+        newListing: { type: Boolean, default: false },
+        lastMinute: { type: Boolean, default: false },
+        weekly: { type: Boolean, default: false },
+        monthly: { type: Boolean, default: false },
+      },
     },
-    reviews: [reviewSchema],
+    bookingSettings: {
+      approveFirstFive: { type: Boolean, default: true },
+      instantBook: { type: Boolean, default: false },
+    },
+    host: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    category: { type: mongoose.Schema.Types.ObjectId, ref: "Category" }, // Make optional or required
+    rating: { type: Number, default: 0 },
   },
   { timestamps: true }
 );
