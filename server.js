@@ -10,6 +10,7 @@ const settingsRoutes = require("./routes/settings");
 const profileRoutes = require("./routes/profile");
 const uploadRoutes = require("./routes/upload");
 const messageRoutes = require("./routes/messages");
+const hostRoutes = require("./routes/hosts");
 const http = require("http");
 const socketIo = require("socket.io");
 const Message = require("./models/Message");
@@ -95,6 +96,7 @@ app.use("/api/settings", settingsRoutes);
 app.use("/api/profile", profileRoutes); // New
 app.use("/api/messages", messageRoutes);
 app.use("/api/upload", uploadRoutes);
+app.use("/api/hosts", hostRoutes);
 app.use("/uploads", express.static("uploads"));
 
 const PORT = process.env.PORT || 5000;
