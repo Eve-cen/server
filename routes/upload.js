@@ -3,75 +3,75 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 const router = express.Router();
-
-// Ensure upload directory exists
-const uploadDir = "uploads/";
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir);
-}
+const uploadToR2 = require("../utils/uploadService");
 
 // Configure multer storage
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
+    const uploadDir = "uploads/";
+    // Create uploads directory if it doesn't exist
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
+    cb(null, uniqueSuffix + "-" + file.originalname);
   },
 });
 
-// File filter (optional: restrict to images)
-const fileFilter = (req, file, cb) => {
-  if (file.mimetype.startsWith("image/")) cb(null, true);
-  else cb(new Error("Only image files are allowed!"), false);
-};
-
-const upload = multer({ storage, fileFilter });
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: 100 * 1024 * 1024, // 100MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    // Accept images only (optional - remove if you want all file types)
+    if (!file.mimetype.startsWith("image/")) {
+      return cb(new Error("Only image files are allowed!"), false);
+    }
+    cb(null, true);
+  },
+});
 
 // POST /upload
-router.post("/", upload.single("file"), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: "No file uploaded" });
-  res.status(200).json({
-    message: "File uploaded successfully",
-    filePath: `/${req.file.path}`,
-  });
+router.post("/", upload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: "No file uploaded",
+      });
+    }
+
+    // Upload to R2
+    const result = await uploadToR2(req.file.path, req.file.filename);
+
+    res.status(200).json({
+      success: true,
+      message: "File uploaded successfully",
+      url: result.location,
+      filename: result.key,
+    });
+  } catch (error) {
+    console.error("Upload error:", error);
+
+    // Clean up local file if it still exists
+    if (req.file && fs.existsSync(req.file.path)) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (unlinkError) {
+        console.error("Error deleting local file:", unlinkError);
+      }
+    }
+
+    res.status(500).json({
+      success: false,
+      error: "Error uploading file",
+      message: error.message,
+    });
+  }
 });
 
 module.exports = router;
-
-// import express from "express";
-// import multer from "multer";
-// import { v2 as cloudinary } from "cloudinary";
-// import { CloudinaryStorage } from "multer-storage-cloudinary";
-
-// const router = express.Router();
-
-// // Configure Cloudinary
-// cloudinary.config({
-//   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-//   api_key: process.env.CLOUDINARY_API_KEY,
-//   api_secret: process.env.CLOUDINARY_API_SECRET,
-// });
-
-// // Configure storage
-// const storage = new CloudinaryStorage({
-//   cloudinary,
-//   params: {
-//     folder: "uploads",
-//     allowed_formats: ["jpg", "jpeg", "png", "webp"],
-//   },
-// });
-
-// const upload = multer({ storage });
-
-// // POST /upload
-// router.post("/", upload.single("file"), (req, res) => {
-//   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
-//   res.status(200).json({
-//     message: "File uploaded successfully",
-//     url: req.file.path, // Cloudinary URL
-//   });
-// });
-
-// export default router;

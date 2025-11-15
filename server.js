@@ -11,6 +11,7 @@ const profileRoutes = require("./routes/profile");
 const uploadRoutes = require("./routes/upload");
 const messageRoutes = require("./routes/messages");
 const hostRoutes = require("./routes/hosts");
+const paymentRoutes = require("./routes/payments");
 const http = require("http");
 const socketIo = require("socket.io");
 const Message = require("./models/Message");
@@ -71,15 +72,24 @@ io.on("connection", (socket) => {
     console.log("User disconnected:", socket.user.id);
   });
 });
+app.set("io", io);
 
 // Middleware
-app.use(
-  cors({
-    origin: "http://localhost:5173",
-    credentials: true, // important for cookies or Authorization headers
-  })
-);
-app.use(express.json());
+const corsOptions = {
+  origin: ["http://localhost:5173", "http://localhost:3000"], // Add all frontend URLs
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  exposedHeaders: ["Content-Range", "X-Content-Range"],
+  maxAge: 86400, // 24 hours
+};
+
+// Apply CORS before other middleware
+app.use(cors(corsOptions));
+
+// Body parsing middleware
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // Connect to MongoDB
 mongoose
@@ -97,6 +107,7 @@ app.use("/api/profile", profileRoutes); // New
 app.use("/api/messages", messageRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/hosts", hostRoutes);
+app.use("/api/payments", paymentRoutes);
 app.use("/uploads", express.static("uploads"));
 
 const PORT = process.env.PORT || 5000;
