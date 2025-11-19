@@ -23,7 +23,7 @@ router.get("/me", auth, async (req, res) => {
 
 // Login/Signup
 router.post("/login", async (req, res) => {
-  const { name, email, password } = req.body;
+  const { email, password } = req.body;
 
   // Basic validation
   if (!email || !password) {
@@ -51,7 +51,6 @@ router.post("/login", async (req, res) => {
     // Signup
     const hashedPassword = await bcrypt.hash(password, 10);
     user = new User({
-      name: name,
       email: normalizedEmail,
       password: hashedPassword,
     });

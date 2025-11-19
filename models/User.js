@@ -79,7 +79,7 @@ const userSchema = new mongoose.Schema(
   {
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
-    name: { type: String, required: true }, // Legal name
+    name: { type: String, required: false },
     preferredName: { type: String },
     phoneNumber: { type: String },
     address: { type: String },
