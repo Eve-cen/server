@@ -7,6 +7,7 @@ const Category = require("../models/Category");
 const auth = require("../middleware/auth");
 const uploadToR2 = require("../utils/uploadService");
 const { deleteFromR2 } = require("../utils/uploadService");
+const validatePricing = require("../middleware/validatePricing");
 
 const router = express.Router();
 
@@ -79,62 +80,29 @@ const deleteFilesFromR2 = async (imageUrls) => {
 // ====================== ROUTES ======================
 
 // ✅ Create a new property listing (with R2 upload)
-router.post("/", auth, upload.array("images", 45), async (req, res) => {
-  try {
-    console.log("Received property creation request");
-    console.log("Body:", req.body);
-    console.log("Files:", req.files.length || 0);
-
-    // Parse JSON strings from FormData
-    let location, coordinates, features, extras, pricing, bookingSettings;
+router.post(
+  "/",
+  validatePricing,
+  auth,
+  upload.array("images", 45),
+  async (req, res) => {
     try {
-      location = JSON.parse(req.body.location);
-      coordinates = JSON.parse(req.body.coordinates);
-      features = JSON.parse(req.body.features);
-      extras = JSON.parse(req.body.extras || "[]");
-      pricing = JSON.parse(req.body.pricing);
-      bookingSettings = JSON.parse(req.body.bookingSettings);
-    } catch (parseError) {
-      console.error("JSON Parse Error:", parseError);
+      console.log("Received property creation request");
+      console.log("Body:", req.body);
+      console.log("Files:", req.files.length || 0);
 
-      // Clean up uploaded files
-      if (req.files && req.files.length > 0) {
-        req.files.forEach((file) => {
-          if (fs.existsSync(file.path)) {
-            fs.unlinkSync(file.path);
-          }
-        });
-      }
+      // Parse JSON strings from FormData
+      let location, coordinates, features, extras, pricing, bookingSettings;
+      try {
+        location = JSON.parse(req.body.location);
+        coordinates = JSON.parse(req.body.coordinates);
+        features = JSON.parse(req.body.features);
+        extras = JSON.parse(req.body.extras || "[]");
+        pricing = JSON.parse(req.body.pricing);
+        bookingSettings = JSON.parse(req.body.bookingSettings);
+      } catch (parseError) {
+        console.error("JSON Parse Error:", parseError);
 
-      return res.status(400).json({
-        error: "Invalid JSON format in request body",
-        details: parseError.message,
-      });
-    }
-
-    const { title, description, category } = req.body;
-    const host = req.user.id;
-
-    // Validate required fields
-    if (!title || !description) {
-      // Clean up uploaded files
-      if (req.files && req.files.length > 0) {
-        req.files.forEach((file) => {
-          if (fs.existsSync(file.path)) {
-            fs.unlinkSync(file.path);
-          }
-        });
-      }
-
-      return res.status(400).json({
-        error: "Missing required fields: title and description are required",
-      });
-    }
-
-    // Validate category if provided
-    if (category && category.trim()) {
-      const categoryDoc = await Category.findById(category);
-      if (!categoryDoc) {
         // Clean up uploaded files
         if (req.files && req.files.length > 0) {
           req.files.forEach((file) => {
@@ -143,80 +111,121 @@ router.post("/", auth, upload.array("images", 45), async (req, res) => {
             }
           });
         }
-        return res.status(404).json({ error: "Category not found" });
-      }
-    }
 
-    // Upload images to R2
-    let r2ImageUrls = [];
-    if (req.files && req.files.length > 0) {
-      try {
-        console.log("Uploading images to R2...");
-        r2ImageUrls = await uploadFilesToR2(req.files);
-        console.log(`Successfully uploaded ${r2ImageUrls.length} images to R2`);
-      } catch (uploadError) {
-        console.error("Error uploading to R2:", uploadError);
-        return res.status(500).json({
-          error: "Failed to upload images",
-          details: uploadError.message,
+        return res.status(400).json({
+          error: "Invalid JSON format in request body",
+          details: parseError.message,
         });
       }
-    }
 
-    const coverImage = r2ImageUrls.length > 0 ? r2ImageUrls[0] : null;
+      const { title, description, category } = req.body;
+      const host = req.user.id;
 
-    console.log("Creating property with data:", {
-      title,
-      imagesCount: r2ImageUrls.length,
-      host,
-    });
-
-    // Create property document with R2 URLs
-    const property = new Property({
-      title,
-      description,
-      location,
-      coordinates,
-      images: r2ImageUrls, // Store R2 URLs instead of local paths
-      coverImage: coverImage,
-      features,
-      extras: extras || [],
-      pricing,
-      bookingSettings,
-      host,
-      category: category && category.trim() ? category : undefined,
-    });
-
-    const savedProperty = await property.save();
-    console.log("Property created successfully:", savedProperty._id);
-
-    res.status(201).json({
-      success: true,
-      message: "Property created successfully",
-      property: savedProperty,
-    });
-  } catch (err) {
-    console.error("Error creating property:", err);
-
-    // Clean up temporary files if they still exist
-    if (req.files && req.files.length > 0) {
-      req.files.forEach((file) => {
-        if (fs.existsSync(file.path)) {
-          try {
-            fs.unlinkSync(file.path);
-          } catch (unlinkError) {
-            console.error("Error deleting temp file:", unlinkError);
-          }
+      // Validate required fields
+      if (!title || !description) {
+        // Clean up uploaded files
+        if (req.files && req.files.length > 0) {
+          req.files.forEach((file) => {
+            if (fs.existsSync(file.path)) {
+              fs.unlinkSync(file.path);
+            }
+          });
         }
+
+        return res.status(400).json({
+          error: "Missing required fields: title and description are required",
+        });
+      }
+
+      // Validate category if provided
+      if (category && category.trim()) {
+        const categoryDoc = await Category.findById(category);
+        if (!categoryDoc) {
+          // Clean up uploaded files
+          if (req.files && req.files.length > 0) {
+            req.files.forEach((file) => {
+              if (fs.existsSync(file.path)) {
+                fs.unlinkSync(file.path);
+              }
+            });
+          }
+          return res.status(404).json({ error: "Category not found" });
+        }
+      }
+
+      // Upload images to R2
+      let r2ImageUrls = [];
+      if (req.files && req.files.length > 0) {
+        try {
+          console.log("Uploading images to R2...");
+          r2ImageUrls = await uploadFilesToR2(req.files);
+          console.log(
+            `Successfully uploaded ${r2ImageUrls.length} images to R2`
+          );
+        } catch (uploadError) {
+          console.error("Error uploading to R2:", uploadError);
+          return res.status(500).json({
+            error: "Failed to upload images",
+            details: uploadError.message,
+          });
+        }
+      }
+
+      const coverImage = r2ImageUrls.length > 0 ? r2ImageUrls[0] : null;
+
+      console.log("Creating property with data:", {
+        title,
+        imagesCount: r2ImageUrls.length,
+        host,
+      });
+
+      // Create property document with R2 URLs
+      const property = new Property({
+        title,
+        description,
+        location,
+        coordinates,
+        images: r2ImageUrls, // Store R2 URLs instead of local paths
+        coverImage: coverImage,
+        features,
+        extras: extras || [],
+        pricing,
+        bookingSettings,
+        host,
+        category: category && category.trim() ? category : undefined,
+      });
+
+      const savedProperty = await property.save();
+      console.log("Property created successfully:", savedProperty._id);
+
+      res.status(201).json({
+        success: true,
+        message: "Property created successfully",
+        property: savedProperty,
+      });
+    } catch (err) {
+      console.error("Error creating property:", err);
+
+      // Clean up temporary files if they still exist
+      if (req.files && req.files.length > 0) {
+        req.files.forEach((file) => {
+          if (fs.existsSync(file.path)) {
+            try {
+              fs.unlinkSync(file.path);
+            } catch (unlinkError) {
+              console.error("Error deleting temp file:", unlinkError);
+            }
+          }
+        });
+      }
+
+      res.status(500).json({
+        error: "Server error",
+        details: err.message,
       });
     }
-
-    res.status(500).json({
-      error: "Server error",
-      details: err.message,
-    });
   }
-});
+);
 
 // ✅ Get all properties
 router.get("/", async (req, res) => {

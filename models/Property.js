@@ -49,7 +49,16 @@ const propertySchema = new mongoose.Schema(
       restrooms: { type: Number, default: 0 },
       sizeSQM: { type: Number, default: 0 },
       seatCapacity: { type: Number, default: 0 },
+      consultationArea: { type: Boolean, default: false },
+      examinationCouch: { type: Boolean, default: false },
+      sinkCounter: { type: Boolean, default: false },
+      adjustableEnvironment: { type: Boolean, default: false },
+      sharpsBin: { type: Boolean, default: false },
+      naturalLight: { type: Boolean, default: false },
+      dirtyTowelShoot: { type: Boolean, default: false },
+      cqcCompliance: { type: Boolean, default: false },
     },
+
     extras: [
       {
         name: String,
@@ -57,8 +66,38 @@ const propertySchema = new mongoose.Schema(
       },
     ],
     pricing: {
-      weekdayPrice: { type: Number, required: true },
-      preTaxPrice: { type: Number },
+      pricingType: {
+        type: String,
+        enum: ["DAILY", "HOURLY"],
+        required: true,
+        default: "DAILY",
+      },
+
+      // DAILY pricing
+      weekdayPrice: {
+        type: Number,
+        min: 0,
+        required: function () {
+          return this.pricing.pricingType === "DAILY";
+        },
+      },
+
+      // HOURLY pricing
+      hourlyPrice: {
+        type: Number,
+        min: 0,
+        required: function () {
+          return this.pricing.pricingType === "HOURLY";
+        },
+      },
+
+      minHours: {
+        type: Number,
+        default: 1,
+      },
+
+      preTaxPrice: Number,
+
       discounts: {
         newListing: { type: Boolean, default: false },
         lastMinute: { type: Boolean, default: false },
@@ -66,6 +105,7 @@ const propertySchema = new mongoose.Schema(
         monthly: { type: Boolean, default: false },
       },
     },
+
     bookingSettings: {
       approveFirstFive: { type: Boolean, default: true },
       instantBook: { type: Boolean, default: false },
@@ -76,5 +116,14 @@ const propertySchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+propertySchema.pre("save", function (next) {
+  if (this.pricing.useHourly && !this.pricing.hourlyPrice) {
+    return next(
+      new Error("Hourly price is required when hourly pricing is enabled")
+    );
+  }
+  next();
+});
 
 module.exports = mongoose.model("Property", propertySchema);

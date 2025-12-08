@@ -13,6 +13,7 @@ const messageRoutes = require("./routes/messages");
 const hostRoutes = require("./routes/hosts");
 const paymentRoutes = require("./routes/payments");
 const geocodeRoutes = require("./routes/geocode");
+const verificationRoutes = require("./routes/verification");
 const http = require("http");
 const socketIo = require("socket.io");
 const Message = require("./models/Message");
@@ -110,6 +111,7 @@ app.use("/api/upload", uploadRoutes);
 app.use("/api/hosts", hostRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/geocode", geocodeRoutes);
+app.use("/api/verification", verificationRoutes);
 app.use("/uploads", express.static("uploads"));
 
 const PORT = process.env.PORT || 5000;
