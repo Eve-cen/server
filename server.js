@@ -79,14 +79,17 @@ app.set("io", io);
 
 // Middleware
 const corsOptions = {
-  origin: ["http://localhost:5173", "http://localhost:3000"], // Add all frontend URLs
+  origin: [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "https://evencen.netlify.app", // Add your deployed frontend here
+  ],
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
   exposedHeaders: ["Content-Range", "X-Content-Range"],
   maxAge: 86400, // 24 hours
 };
-
 // Apply CORS before other middleware
 app.use(cors(corsOptions));
 
