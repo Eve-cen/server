@@ -10,84 +10,137 @@ router.post("/", auth, async (req, res) => {
   const guestId = req.user.id;
 
   try {
-    const property = await Property.findById(propertyId).populate("host");
-    if (!property) return res.status(404).json({ error: "Property not found" });
+    // 1. Find active/published property
+    const property = await Property.findOne({
+      _id: propertyId,
+    }).populate("host");
 
-    const fullCheckIn = new Date(checkIn);
-    const fullCheckOut = new Date(checkOut);
-
-    if (fullCheckOut <= fullCheckIn) {
-      return res.status(400).json({ error: "Invalid booking time" });
+    if (!property) {
+      return res
+        .status(404)
+        .json({ error: "Property not found or unavailable" });
     }
 
-    const nights =
-      property.pricing.pricingType === "NIGHTLY"
-        ? Math.max(Math.ceil((fullCheckOut - fullCheckIn) / 86400000), 1)
-        : undefined;
+    // 2. Parse and validate dates
+    const checkInDate = new Date(checkIn);
+    const checkOutDate = new Date(checkOut);
 
-    const totalHours =
-      property.pricing.pricingType === "HOURLY"
-        ? (fullCheckOut - fullCheckIn) / (1000 * 60 * 60)
-        : undefined;
-
-    let total = 0;
-
-    if (property.pricing.pricingType === "HOURLY") {
-      const milliseconds = fullCheckOut - fullCheckIn;
-      const totalHours = Math.max(0, milliseconds / (1000 * 60 * 60));
-
-      if (totalHours <= 0)
-        return res.status(400).json({ error: "Invalid hourly booking time" });
-
-      total = (property.pricing.hourlyPrice || 0) * totalHours;
+    if (isNaN(checkInDate) || isNaN(checkOutDate)) {
+      return res.status(400).json({ error: "Invalid date format" });
     }
 
+    if (checkOutDate <= checkInDate) {
+      return res
+        .status(400)
+        .json({ error: "Check-out must be after check-in" });
+    }
+
+    if (checkOutDate < new Date()) {
+      return res.status(400).json({ error: "Cannot book in the past" });
+    }
+
+    // 3. Prevent double booking
+    const conflict = await Booking.findOne({
+      property: propertyId,
+      status: { $in: ["confirmed", "pending"] },
+      checkIn: { $lt: checkOutDate },
+      checkOut: { $gt: checkInDate },
+    });
+
+    if (conflict) {
+      return res.status(409).json({ error: "These dates are already booked" });
+    }
+
+    // 4. Calculate total price
+    let totalPrice = 0;
+    let totalNights = 0;
+    let totalHours = 0;
+
+    // NIGHTLY: number of nights × weekdayPrice
     if (property.pricing.pricingType === "NIGHTLY") {
-      const nights = Math.ceil((fullCheckOut - fullCheckIn) / 86400000) || 1; // minimum 1 night
-      total = (property.pricing.weekdayPrice || 0) * nights;
+      const nights = Math.ceil(
+        (checkOutDate - checkInDate) / (1000 * 60 * 60 * 24)
+      );
+      totalNights = Math.max(nights, 1);
+
+      const nightPrice = Number(property.pricing.weekdayPrice) || 0;
+      if (nightPrice <= 0) {
+        return res.status(400).json({ error: "Nightly price not configured" });
+      }
+
+      totalPrice = totalNights * nightPrice;
     }
 
-    const selectedExtras = property.extras.filter((e) =>
-      extras.includes(e.name)
-    );
-    selectedExtras.forEach((e) => (total += e.price));
+    // HOURLY: total hours (even over multiple days) × hourlyPrice
+    else if (property.pricing.pricingType === "HOURLY") {
+      totalHours = (checkOutDate - checkInDate) / (1000 * 60 * 60); // decimal hours
 
+      if (totalHours < 1) {
+        return res.status(400).json({ error: "Minimum 1 hour required" });
+      }
+
+      const hourPrice = Number(property.pricing.hourlyPrice) || 0;
+      if (hourPrice <= 0) {
+        return res.status(400).json({ error: "Hourly price not configured" });
+      }
+
+      // Choose one:
+      totalPrice = totalHours * hourPrice; // exact hours (e.g. 9.5h allowed)
+      // totalPrice = Math.ceil(totalHours) * hourPrice; // round up to full hour
+    } else {
+      return res.status(400).json({ error: "Invalid pricing type" });
+    }
+
+    // 5. Add extras
+    const validExtras = Array.isArray(property.extras) ? property.extras : [];
+    const selectedExtras = validExtras.filter((e) => extras.includes(e.name));
+    const extrasTotal = selectedExtras.reduce(
+      (sum, e) => sum + (Number(e.price) || 0),
+      0
+    );
+    totalPrice += extrasTotal;
+
+    // 6. Apply discounts (optional)
     let discount = 0;
     if (property.pricing.pricingType === "NIGHTLY") {
-      if (property.pricing.discounts.newListing) discount += total * 0.2;
-      if (property.pricing.discounts.lastMinute && nights === 1)
-        discount += total * 0.01;
-      if (property.pricing.discounts.weekly && nights >= 7)
-        discount += total * 0.1;
-      if (property.pricing.discounts.monthly && nights >= 30)
-        discount += total * 0.2;
+      if (property.pricing.discounts?.newListing) discount += totalPrice * 0.2;
+      if (totalNights >= 7 && property.pricing.discounts?.weekly)
+        discount += totalPrice * 0.1;
+      if (totalNights >= 30 && property.pricing.discounts?.monthly)
+        discount += totalPrice * 0.2;
     }
+    totalPrice = Math.round((totalPrice - discount) * 100) / 100;
 
-    total = Math.round((total - discount) * 100) / 100;
+    // Final safety
+    if (isNaN(totalPrice) || totalPrice < 0) totalPrice = 0;
 
+    // 7. Create booking
     const booking = new Booking({
       property: propertyId,
       guest: guestId,
       host: property.host._id,
-      checkIn: fullCheckIn,
-      checkOut: fullCheckOut,
-      guests,
+      checkIn: checkInDate,
+      checkOut: checkOutDate,
+      guests: guests || 1,
       extras: selectedExtras,
-      totalPrice: total,
-      discountApplied: discount,
-      totalHours,
-      totalNights: nights,
+      totalPrice,
+      discountApplied: Math.round(discount * 100) / 100,
+      totalNights:
+        property.pricing.pricingType === "NIGHTLY" ? totalNights : undefined,
+      totalHours:
+        property.pricing.pricingType === "HOURLY"
+          ? Number(totalHours.toFixed(2))
+          : undefined,
+      status: property.bookingSettings?.instantBook ? "confirmed" : "pending",
     });
-
-    if (property.bookingSettings.instantBook) booking.status = "confirmed";
 
     await booking.save();
     await booking.populate(["guest", "property", "host"]);
 
-    res.status(201).json(booking);
+    return res.status(201).json(booking);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Server error" });
+    console.error("Booking creation failed:", err);
+    return res.status(500).json({ error: "Failed to create booking" });
   }
 });
 
