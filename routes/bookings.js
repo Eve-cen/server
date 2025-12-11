@@ -56,8 +56,8 @@ router.post("/", auth, async (req, res) => {
     let totalNights = 0;
     let totalHours = 0;
 
-    // NIGHTLY: number of nights × weekdayPrice
-    if (property.pricing.pricingType === "NIGHTLY") {
+    // DAILY: number of nights × weekdayPrice
+    if (property.pricing.pricingType === "DAILY") {
       const nights = Math.ceil(
         (checkOutDate - checkInDate) / (1000 * 60 * 60 * 24)
       );
@@ -65,7 +65,7 @@ router.post("/", auth, async (req, res) => {
 
       const nightPrice = Number(property.pricing.weekdayPrice) || 0;
       if (nightPrice <= 0) {
-        return res.status(400).json({ error: "Nightly price not configured" });
+        return res.status(400).json({ error: "DAILY price not configured" });
       }
 
       totalPrice = totalNights * nightPrice;
@@ -102,7 +102,7 @@ router.post("/", auth, async (req, res) => {
 
     // 6. Apply discounts (optional)
     let discount = 0;
-    if (property.pricing.pricingType === "NIGHTLY") {
+    if (property.pricing.pricingType === "DAILY") {
       if (property.pricing.discounts?.newListing) discount += totalPrice * 0.2;
       if (totalNights >= 7 && property.pricing.discounts?.weekly)
         discount += totalPrice * 0.1;
@@ -126,7 +126,7 @@ router.post("/", auth, async (req, res) => {
       totalPrice,
       discountApplied: Math.round(discount * 100) / 100,
       totalNights:
-        property.pricing.pricingType === "NIGHTLY" ? totalNights : undefined,
+        property.pricing.pricingType === "DAILY" ? totalNights : undefined,
       totalHours:
         property.pricing.pricingType === "HOURLY"
           ? Number(totalHours.toFixed(2))
