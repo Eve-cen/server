@@ -31,6 +31,12 @@ const reviewSchema = new mongoose.Schema({
 // In your Property model file
 const propertySchema = new mongoose.Schema(
   {
+    listingType: {
+      type: String,
+      enum: ["Home", "Experience", "Service"],
+      required: true,
+      default: "Home",
+    },
     title: { type: String, required: true },
     description: { type: String, required: true },
     location: {

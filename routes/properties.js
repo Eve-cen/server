@@ -92,8 +92,15 @@ router.post(
       console.log("Files:", req.files.length || 0);
 
       // Parse JSON strings from FormData
-      let location, coordinates, features, extras, pricing, bookingSettings;
+      let listingType,
+        location,
+        coordinates,
+        features,
+        extras,
+        pricing,
+        bookingSettings;
       try {
+        listingType = JSON.parse(req.body.listingType);
         location = JSON.parse(req.body.location);
         coordinates = JSON.parse(req.body.coordinates);
         features = JSON.parse(req.body.features);
@@ -181,6 +188,7 @@ router.post(
 
       // Create property document with R2 URLs
       const property = new Property({
+        listingType,
         title,
         description,
         location,
