@@ -8,6 +8,7 @@ const auth = require("../middleware/auth");
 const uploadToR2 = require("../utils/uploadService");
 const { deleteFromR2 } = require("../utils/uploadService");
 const validatePricing = require("../middleware/validatePricing");
+const Draft = require("../models/Draft");
 
 const router = express.Router();
 
@@ -204,7 +205,21 @@ router.post(
       });
 
       const savedProperty = await property.save();
-      console.log("Property created successfully:", savedProperty._id);
+
+      if (req.body.draftId) {
+        const deletedDoc = await Draft.findOneAndDelete({
+          _id: req.body.draftId,
+          user: req.user.id,
+        });
+
+        if (!deletedDoc) {
+          console.log("No draft found with that ID for this user.");
+        } else {
+          console.log("Draft successfully deleted:", deletedDoc._id);
+        }
+      } else {
+        console.log("No draftId provided in the request body.");
+      }
 
       res.status(201).json({
         success: true,
