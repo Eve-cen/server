@@ -31,12 +31,6 @@ const reviewSchema = new mongoose.Schema({
 // In your Property model file
 const propertySchema = new mongoose.Schema(
   {
-    listingType: {
-      type: String,
-      enum: ["Home", "Experience", "Service"],
-      required: true,
-      default: "Home",
-    },
     title: { type: String, required: true },
     description: { type: String, required: true },
     location: {
@@ -63,6 +57,20 @@ const propertySchema = new mongoose.Schema(
       naturalLight: { type: Boolean, default: false },
       dirtyTowelShoot: { type: Boolean, default: false },
       cqcCompliance: { type: Boolean, default: false },
+      plug: { type: Boolean, default: false },
+      sound: { type: Boolean, default: false },
+      lockable: { type: Boolean, default: false },
+      washbasin: { type: Boolean, default: false },
+      clinicalSurface: { type: Boolean, default: false },
+      wasteBin: { type: Boolean, default: false },
+      meetCQCStandards: { type: Boolean, default: false },
+      electricBed: { type: Boolean, default: false },
+      adjustableStool: { type: Boolean, default: false },
+      trolley: { type: Boolean, default: false },
+      magnifyingLamp: { type: Boolean, default: false },
+      storage: { type: Boolean, default: false },
+      mirror: { type: Boolean, default: false },
+      bathroom: { type: Number, default: 1 },
     },
 
     extras: [
