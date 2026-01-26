@@ -83,7 +83,7 @@ const corsOptions = {
   origin: [
     "http://localhost:5173",
     "http://localhost:3000",
-    "https://evencen.netlify.app", // Add your deployed frontend here
+    "https://vencome.netlify.app", // Add your deployed frontend here
   ],
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
