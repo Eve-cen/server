@@ -6,6 +6,7 @@ const authRoutes = require("./routes/auth");
 const propertyRoutes = require("./routes/properties");
 const categoryRoutes = require("./routes/categories");
 const bookingRoutes = require("./routes/bookings");
+const reviewsRoutes = require("./routes/reviews");
 const settingsRoutes = require("./routes/settings");
 const profileRoutes = require("./routes/profile");
 const uploadRoutes = require("./routes/upload");
@@ -20,6 +21,9 @@ const socketIo = require("socket.io");
 const Message = require("./models/Message");
 const Conversation = require("./models/Conversation");
 
+const cron = require("node-cron");
+const markCompletedBookings = require("./jobs/markCompletedBookings");
+
 dotenv.config({ path: "./config.env" });
 
 const app = express();
@@ -27,8 +31,8 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    // origin: "http://localhost:5173",
-    origin: "https://evencen.onrender.com",
+    origin: "http://localhost:5173",
+    // origin: "https://evencen.onrender.com",
     methods: ["GET", "POST"],
     credentials: true,
   },
@@ -82,7 +86,6 @@ app.set("io", io);
 const corsOptions = {
   origin: [
     "http://localhost:5173",
-    "http://localhost:3000",
     "https://vencome.netlify.app", // Add your deployed frontend here
   ],
   credentials: true,
@@ -93,6 +96,11 @@ const corsOptions = {
 };
 // Apply CORS before other middleware
 app.use(cors(corsOptions));
+
+cron.schedule("0 0 * * *", async () => {
+  console.log("Running daily booking cleanup...");
+  await markCompletedBookings();
+});
 
 // Body parsing middleware
 app.use(express.json({ limit: "10mb" }));
@@ -109,6 +117,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/properties", propertyRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/bookings", bookingRoutes);
+app.use("/api/reviews", reviewsRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/profile", profileRoutes); // New
 app.use("/api/messages", messageRoutes);

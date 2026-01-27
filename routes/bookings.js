@@ -210,4 +210,16 @@ router.put("/:id/status", auth, async (req, res) => {
   }
 });
 
+router.get("/past", auth, async (req, res) => {
+  // const bookings = await Booking.find({
+  //   guest: req.user._id,
+  //   checkOut: { $gt: new Date() },
+  // })
+  const bookings = await Booking.find({ guest: req.user.id })
+    .populate("property", "title images coverImage location pricing")
+    .sort({ checkOut: -1 });
+
+  res.json(bookings);
+});
+
 module.exports = router;

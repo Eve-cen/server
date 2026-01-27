@@ -26,6 +26,12 @@ const bookingSchema = new mongoose.Schema({
   isPaid: { type: Boolean, default: false },
   stripeSessionId: { type: String },
   paymentIntentId: { type: String },
+  reviewed: { type: Boolean, default: false },
+  completed: {
+    type: Boolean,
+    default: false,
+  },
+  review: { type: mongoose.Schema.Types.ObjectId, ref: "Review" },
   createdAt: { type: Date, default: Date.now },
 });
 
