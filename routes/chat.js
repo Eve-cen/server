@@ -24,15 +24,69 @@ router.post("/conversation/:bookingId", auth, async (req, res) => {
   res.json(conversation);
 });
 
-/**
- * Get messages
- */
-router.get("/:conversationId", auth, async (req, res) => {
-  const messages = await Message.find({
-    conversation: req.params.conversationId,
-  }).populate("sender", "name");
+router.get("/conversations", auth, async (req, res) => {
+  try {
+    const userId = req.user.id;
 
-  res.json(messages);
+    // Find conversations where user is guest or host
+    const conversations = await Conversation.find({
+      $or: [{ guest: userId }, { host: userId }],
+    })
+      .populate("guest", "displayName profileImage") // only select what you need
+      .populate("host", "displayName profileImage")
+      .sort({ updatedAt: -1 }) // latest updated first
+      .lean(); // return plain JS objects
+
+    // Fetch last message for each conversation
+    const result = await Promise.all(
+      conversations.map(async (conv) => {
+        const lastMessage = await Message.findOne({ conversation: conv._id })
+          .sort({ createdAt: -1 })
+          .lean();
+
+        return {
+          ...conv,
+          lastMessage: lastMessage ? lastMessage.text : null,
+          lastMessageAt: lastMessage ? lastMessage.createdAt : conv.updatedAt,
+        };
+      })
+    );
+
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch conversations" });
+  }
+});
+
+router.get("/:conversationId", auth, async (req, res) => {
+  try {
+    // Fetch the conversation with guest and host details
+    const conversation = await Conversation.findById(req.params.conversationId)
+      .populate("guest", "displayName profileImage")
+      .populate("host", "displayName profileImage")
+      .lean();
+
+    if (!conversation) {
+      return res.status(404).json({ error: "Conversation not found" });
+    }
+
+    // Fetch messages
+    const messages = await Message.find({
+      conversation: req.params.conversationId,
+    })
+      .populate("sender", "displayName profileImage")
+      .sort({ createdAt: 1 }) // oldest first
+      .lean();
+
+    res.json({
+      conversation,
+      messages,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch conversation" });
+  }
 });
 
 /**
