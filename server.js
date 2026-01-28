@@ -2,6 +2,7 @@ const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const dotenv = require("dotenv");
+const jwt = require("jsonwebtoken");
 const authRoutes = require("./routes/auth");
 const propertyRoutes = require("./routes/properties");
 const categoryRoutes = require("./routes/categories");
@@ -16,6 +17,7 @@ const paymentRoutes = require("./routes/payments");
 const geocodeRoutes = require("./routes/geocode");
 const verificationRoutes = require("./routes/verification");
 const draftRoutes = require("./routes/drafts");
+const chatRoutes = require("./routes/chat");
 const http = require("http");
 const socketIo = require("socket.io");
 const Message = require("./models/Message");
@@ -23,6 +25,7 @@ const Conversation = require("./models/Conversation");
 
 const cron = require("node-cron");
 const markCompletedBookings = require("./jobs/markCompletedBookings");
+const isSuspicious = require("./utils/suspicionEngine");
 
 dotenv.config({ path: "./config.env" });
 
@@ -59,11 +62,27 @@ io.on("connection", (socket) => {
     socket.join(conversationId);
   });
 
+  socket.on("typing", ({ conversationId }) => {
+    socket.to(conversationId).emit("typing", {
+      userId: socket.user.id,
+    });
+  });
+
+  socket.on("stopTyping", ({ conversationId }) => {
+    socket.to(conversationId).emit("stopTyping", {
+      userId: socket.user.id,
+    });
+  });
+
   socket.on("sendMessage", async ({ conversationId, text }) => {
+    const flagged = isSuspicious(text);
+
     const message = new Message({
       conversation: conversationId,
       sender: socket.user.id,
       text,
+      blocked: flagged,
+      blockReason: flagged ? "Suspicious content detected" : null,
     });
     await message.save();
     await message.populate("sender", "name profileImage");
@@ -121,6 +140,7 @@ app.use("/api/reviews", reviewsRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/profile", profileRoutes); // New
 app.use("/api/messages", messageRoutes);
+app.use("/api/chat", chatRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/hosts", hostRoutes);
 app.use("/api/payments", paymentRoutes);
@@ -130,4 +150,4 @@ app.use("/api/drafts", draftRoutes);
 app.use("/uploads", express.static("uploads"));
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));

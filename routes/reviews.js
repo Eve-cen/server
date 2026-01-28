@@ -1,6 +1,7 @@
 const express = require("express");
 const Booking = require("../models/Booking");
 const Review = require("../models/Review");
+const Property = require("../models/Property");
 const auth = require("../middleware/auth");
 const router = express.Router();
 const updatePropertyRating = require("../utils/updatePropertyRating");

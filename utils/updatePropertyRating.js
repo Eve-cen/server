@@ -3,17 +3,34 @@ const Review = require("../models/Review");
 const Property = require("../models/Property");
 
 async function updatePropertyRating(propertyId) {
-  const reviews = await Review.find({ property: propertyId });
+  const stats = await Review.aggregate([
+    { $match: { property: propertyId } },
+    {
+      $group: {
+        _id: "$property",
+        avgRating: { $avg: "$rating" },
+        reviewCount: { $sum: 1 },
+        reviewIds: { $push: "$_id" },
+      },
+    },
+  ]);
 
-  if (reviews.length === 0) {
-    await Property.findByIdAndUpdate(propertyId, { averageRating: 0 });
+  if (!stats.length) {
+    await Property.findByIdAndUpdate(propertyId, {
+      rating: 0,
+      reviewNumber: 0,
+      reviews: [],
+    });
     return;
   }
 
-  const total = reviews.reduce((sum, r) => sum + r.rating, 0);
-  const avg = total / reviews.length;
+  const { avgRating, reviewCount, reviewIds } = stats[0];
 
-  await Property.findByIdAndUpdate(propertyId, { averageRating: avg });
+  await Property.findByIdAndUpdate(propertyId, {
+    rating: Number(avgRating.toFixed(1)),
+    reviewNumber: reviewCount,
+    reviews: reviewIds, // ✅ FULL sync, no duplicates ever
+  });
 }
 
 module.exports = updatePropertyRating;

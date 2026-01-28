@@ -12,8 +12,24 @@ const messageSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
-    text: { type: String, required: true },
-    read: { type: Boolean, default: false },
+    text: {
+      type: String,
+      required: true,
+      maxlength: 2000,
+    },
+    blocked: {
+      type: Boolean,
+      default: false,
+    },
+    blockReason: {
+      type: String,
+    },
+    readBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
   },
   { timestamps: true }
 );

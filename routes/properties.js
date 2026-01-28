@@ -321,7 +321,14 @@ router.get("/:id", async (req, res) => {
   try {
     const property = await Property.findById(req.params.id)
       .populate("host", "email name")
-      .populate("category", "name");
+      .populate("category", "name")
+      .populate({
+        path: "reviews",
+        populate: {
+          path: "user",
+          select: "name avatar",
+        },
+      });
 
     if (!property) {
       return res.status(404).json({ error: "Property not found" });

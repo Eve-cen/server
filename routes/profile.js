@@ -22,4 +22,21 @@ router.put("/", auth, async (req, res) => {
   }
 });
 
+router.get("/:id", auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).select("-password"); // exclude sensitive fields
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    res.json(user);
+  } catch (err) {
+    if (err.name === "CastError") {
+      return res.status(400).json({ error: "Invalid user id" });
+    }
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 module.exports = router;
