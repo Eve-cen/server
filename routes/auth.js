@@ -5,6 +5,7 @@ const User = require("../models/User");
 const sendEmail = require("../utils/sendEmail");
 const auth = require("../middleware/auth");
 const router = express.Router();
+const ip = require("ip");
 
 // Generate OTP
 const generateOTP = () => Math.floor(1000 + Math.random() * 9000).toString();
@@ -54,6 +55,7 @@ router.post("/login", async (req, res) => {
       email: normalizedEmail,
       password: hashedPassword,
     });
+
     await user.save();
 
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {

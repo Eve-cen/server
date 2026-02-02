@@ -3,7 +3,9 @@ require("dotenv").config({ path: "config.env" });
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const Booking = require("../models/Booking");
 const auth = require("../middleware/auth");
+const User = require("../models/User");
 const router = express.Router();
+const Payment = require("../models/Payment");
 
 // POST: Create Checkout Session
 router.post("/create-checkout-session", auth, async (req, res) => {
@@ -14,6 +16,10 @@ router.post("/create-checkout-session", auth, async (req, res) => {
       _id: bookingId,
       guest: req.user.id,
     }).populate("property", "title coverImage");
+
+    const imageUrl = booking.property.coverImage
+      ? encodeURI(booking.property.coverImage)
+      : undefined;
 
     if (!booking || booking.isPaid) {
       return res.status(400).json({ error: "Invalid or already paid booking" });
@@ -27,9 +33,7 @@ router.post("/create-checkout-session", auth, async (req, res) => {
             currency: "usd",
             product_data: {
               name: booking.property.title,
-              images: booking.property.coverImage
-                ? [booking.property.coverImage]
-                : undefined,
+              images: booking.property.coverImage ? [imageUrl] : undefined,
             },
             unit_amount: Math.round(booking.totalPrice * 100),
           },
@@ -45,8 +49,6 @@ router.post("/create-checkout-session", auth, async (req, res) => {
     });
 
     // Save session ID
-    booking.stripeSessionId = session.id;
-    booking.isPaid = true;
     await booking.save();
 
     res.json({ url: session.url });
@@ -56,43 +58,228 @@ router.post("/create-checkout-session", auth, async (req, res) => {
   }
 });
 
-// Webhook: Handle payment success
-router.post(
-  "/webhook",
-  express.raw({ type: "application/json" }),
-  async (req, res) => {
-    const sig = req.headers["stripe-signature"];
-    let event;
+// Add payment method
+router.post("/", auth, async (req, res) => {
+  const { tokenId, last4, brand } = req.body;
 
-    try {
-      event = stripe.webhooks.constructEvent(
-        req.body,
-        sig,
-        process.env.STRIPE_WEBHOOK_SECRET
-      );
-    } catch (err) {
-      return res.status(400).send(`Webhook Error: ${err.message}`);
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    // Verify token is valid
+    const token = await stripe.tokens.retrieve(tokenId);
+    if (!token || token.used) {
+      return res.status(400).json({ error: "Invalid or expired token" });
     }
 
-    if (event.type === "checkout.session.completed") {
-      const session = event.data.object;
-      const bookingId = session.metadata.bookingId;
-
-      await Booking.findByIdAndUpdate(bookingId, {
-        isPaid: true,
-        stripeSessionId: session.id,
-        paymentIntentId: session.payment_intent,
+    // Create Stripe customer if doesn't exist
+    if (!user.stripeCustomerId) {
+      const customer = await stripe.customers.create({
+        email: user.email,
+        name: `${user.firstName} ${user.lastName}`,
+        source: tokenId,
       });
-
-      // Notify via Socket.IO
-      const io = req.app.get("io");
-      io.to(`guest_${session.client_reference_id}`).emit("paymentSuccess", {
-        bookingId,
+      user.stripeCustomerId = customer.id;
+    } else {
+      // Add card to existing customer
+      const card = await stripe.customers.createSource(user.stripeCustomerId, {
+        source: tokenId,
       });
     }
 
-    res.json({ received: true });
+    // Set first card as default
+    const isDefault = user.paymentMethods.length === 0;
+
+    // If this should be default, unset others
+    if (isDefault) {
+      user.paymentMethods.forEach((method) => {
+        method.isDefault = false;
+      });
+    }
+
+    // Add payment method
+    user.paymentMethods.push({
+      type: "card",
+      brand: brand.toLowerCase(),
+      cardNumber: `************${last4}`,
+      last4: last4,
+      stripeCardId: token.card.id,
+      isDefault: isDefault,
+    });
+
+    await user.save();
+
+    // Return sanitized data
+    res.status(201).json({
+      success: true,
+      paymentMethods: user.paymentMethods.map((method) => ({
+        _id: method._id,
+        type: method.type,
+        brand: method.brand,
+        last4: method.last4,
+        isDefault: method.isDefault,
+        createdAt: method.createdAt,
+      })),
+    });
+  } catch (err) {
+    console.error("Add payment method error:", err);
+    res.status(500).json({ error: err.message || "Server error" });
   }
-);
+});
+
+// Get payment methods
+router.get("/", auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select("paymentMethods");
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    res.json({
+      paymentMethods: user.paymentMethods.map((method) => ({
+        _id: method._id,
+        type: method.type,
+        brand: method.brand,
+        last4: method.last4,
+        isDefault: method.isDefault,
+        createdAt: method.createdAt,
+      })),
+    });
+  } catch (err) {
+    console.error("Get payment methods error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+router.get("/payment-history", auth, async (req, res) => {
+  try {
+    const payments = await Payment.find({ user: req.user.id })
+      .populate({
+        path: "booking",
+        populate: {
+          path: "property",
+          select: "title images",
+        },
+      })
+      .sort({ createdAt: -1 })
+      .limit(50); // Limit to last 50 payments
+
+    res.json({
+      success: true,
+      payments: payments.map((payment) => ({
+        _id: payment._id,
+        amount: payment.amount,
+        status: payment.status,
+        paymentMethod: payment.paymentMethod,
+        paymentMethodBrand: payment.paymentMethodBrand,
+        last4: payment.last4,
+        booking: payment.booking,
+        createdAt: payment.createdAt,
+        refundAmount: payment.refundAmount,
+        refundedAt: payment.refundedAt,
+      })),
+    });
+  } catch (err) {
+    console.error("Get payment history error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Delete payment method
+router.delete("/:methodId", auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const methodIndex = user.paymentMethods.findIndex(
+      (m) => m._id.toString() === req.params.methodId
+    );
+
+    if (methodIndex === -1) {
+      return res.status(404).json({ error: "Payment method not found" });
+    }
+
+    const method = user.paymentMethods[methodIndex];
+
+    // Prevent deleting default or last method
+    if (method.isDefault && user.paymentMethods.length > 1) {
+      return res.status(400).json({
+        error:
+          "Cannot delete default payment method. Set another as default first.",
+      });
+    }
+
+    if (user.paymentMethods.length === 1) {
+      return res.status(400).json({
+        error: "Cannot delete your only payment method.",
+      });
+    }
+
+    // Optional: Delete from Stripe
+    if (user.stripeCustomerId && method.stripeCardId) {
+      try {
+        await stripe.customers.deleteSource(
+          user.stripeCustomerId,
+          method.stripeCardId
+        );
+      } catch (stripeErr) {
+        console.error("Stripe card deletion error:", stripeErr);
+        // Continue anyway - we'll delete from our DB
+      }
+    }
+
+    user.paymentMethods.splice(methodIndex, 1);
+    await user.save();
+
+    res.json({
+      success: true,
+      message: "Payment method deleted successfully",
+    });
+  } catch (err) {
+    console.error("Delete payment method error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Set default payment method
+router.patch("/:methodId/default", auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const method = user.paymentMethods.find(
+      (m) => m._id.toString() === req.params.methodId
+    );
+
+    if (!method) {
+      return res.status(404).json({ error: "Payment method not found" });
+    }
+
+    // Unset all defaults and set the new one
+    user.paymentMethods.forEach((m) => {
+      m.isDefault = m._id.toString() === req.params.methodId;
+    });
+
+    // Optional: Set as default in Stripe
+    if (user.stripeCustomerId && method.stripeCardId) {
+      try {
+        await stripe.customers.update(user.stripeCustomerId, {
+          default_source: method.stripeCardId,
+        });
+      } catch (stripeErr) {
+        console.error("Stripe default card error:", stripeErr);
+        // Continue anyway
+      }
+    }
+
+    await user.save();
+
+    res.json({
+      success: true,
+      message: "Default payment method updated successfully",
+    });
+  } catch (err) {
+    console.error("Set default payment method error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
 
 module.exports = router;

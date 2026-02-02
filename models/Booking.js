@@ -26,6 +26,11 @@ const bookingSchema = new mongoose.Schema({
   isPaid: { type: Boolean, default: false },
   stripeSessionId: { type: String },
   paymentIntentId: { type: String },
+  escrowReleaseDate: { type: Date }, // when funds should be released
+  escrowReleased: { type: Boolean, default: false },
+  platformFee: { type: Number, default: 0 },
+  hostAmount: { type: Number, default: 0 },
+  stripeTransferId: { type: String },
   reviewed: { type: Boolean, default: false },
   completed: {
     type: Boolean,

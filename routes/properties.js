@@ -9,6 +9,8 @@ const uploadToR2 = require("../utils/uploadService");
 const { deleteFromR2 } = require("../utils/uploadService");
 const validatePricing = require("../middleware/validatePricing");
 const Draft = require("../models/Draft");
+const User = require("../models/User");
+const { makeUserHost } = require("../utils/stripeConnect");
 
 const router = express.Router();
 
@@ -88,10 +90,6 @@ router.post(
   upload.array("images", 45),
   async (req, res) => {
     try {
-      console.log("Received property creation request");
-      console.log("Body:", req.body);
-      console.log("Files:", req.files.length || 0);
-
       // Parse JSON strings from FormData
       let location, coordinates, features, extras, pricing, bookingSettings;
       try {
@@ -158,11 +156,7 @@ router.post(
       let r2ImageUrls = [];
       if (req.files && req.files.length > 0) {
         try {
-          console.log("Uploading images to R2...");
           r2ImageUrls = await uploadFilesToR2(req.files);
-          console.log(
-            `Successfully uploaded ${r2ImageUrls.length} images to R2`
-          );
         } catch (uploadError) {
           console.error("Error uploading to R2:", uploadError);
           return res.status(500).json({
@@ -174,11 +168,47 @@ router.post(
 
       const coverImage = r2ImageUrls.length > 0 ? r2ImageUrls[0] : null;
 
-      console.log("Creating property with data:", {
-        title,
-        imagesCount: r2ImageUrls.length,
-        host,
-      });
+      const user = await User.findById(req.user.id);
+
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+      // 1. Check verification
+      if (!user.isVerified) {
+        return res.status(403).json({
+          success: false,
+          message: "You must verify your account before creating a property",
+        });
+      }
+
+      // 2. Check required profile fields
+      const requiredFields = [
+        "lastName",
+        "firstName",
+        "phoneNumber",
+        "address",
+        "country",
+        "profileImage",
+        "payoutMethods",
+        "dob",
+      ];
+
+      const missingFields = requiredFields.filter(
+        (field) => !user[field] || user[field].toString().trim() === ""
+      );
+
+      console.log(req.user);
+
+      if (missingFields.length > 0) {
+        return res.status(403).json({
+          success: false,
+          message: "Please complete your profile before creating a property",
+          missingFields,
+        });
+      }
 
       // Create property document with R2 URLs
       const property = new Property({
@@ -211,6 +241,17 @@ router.post(
         }
       } else {
         console.log("No draftId provided in the request body.");
+      }
+
+      const propertyCount = await Property.countDocuments({
+        host: req.user.id,
+      });
+
+      // 3️⃣ If this is the first property, mark user as host & create Stripe account
+      if (propertyCount === 1) {
+        // This is the first property
+        const updatedUser = await makeUserHost(req.user.id);
+        console.log("User marked as host:", updatedUser.isHost);
       }
 
       res.status(201).json({

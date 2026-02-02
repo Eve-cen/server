@@ -13,7 +13,9 @@ const profileRoutes = require("./routes/profile");
 const uploadRoutes = require("./routes/upload");
 const messageRoutes = require("./routes/messages");
 const hostRoutes = require("./routes/hosts");
+const paymentsWebhook = require("./routes/paymentsWebhook");
 const paymentRoutes = require("./routes/payments");
+const payoutRoutes = require("./routes/payouts");
 const geocodeRoutes = require("./routes/geocode");
 const verificationRoutes = require("./routes/verification");
 const draftRoutes = require("./routes/drafts");
@@ -22,21 +24,31 @@ const http = require("http");
 const socketIo = require("socket.io");
 const Message = require("./models/Message");
 const Conversation = require("./models/Conversation");
+const setupEscrowRelease = require("./utils/releaseEscrow");
 
 const cron = require("node-cron");
 const markCompletedBookings = require("./jobs/markCompletedBookings");
 const isSuspicious = require("./utils/suspicionEngine");
+const makeUserHost = require("./utils/stripeConnect");
 
 dotenv.config({ path: "./config.env" });
 
 const app = express();
 
+app.set("trust proxy", true);
 const server = http.createServer(app);
+// const io = socketIo(server, {
+//   cors: {
+//     origin: "http://localhost:5173",
+//     // origin: "https://evencen.onrender.com",
+//     methods: ["GET", "POST"],
+//     credentials: true,
+//   },
+// });
+
 const io = socketIo(server, {
   cors: {
-    origin: "http://localhost:5173",
-    // origin: "https://evencen.onrender.com",
-    methods: ["GET", "POST"],
+    origin: true,
     credentials: true,
   },
 });
@@ -121,6 +133,8 @@ cron.schedule("0 0 * * *", async () => {
   await markCompletedBookings();
 });
 
+app.use("/api/payments/webhook", paymentsWebhook);
+
 // Body parsing middleware
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
@@ -144,6 +158,7 @@ app.use("/api/chat", chatRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/hosts", hostRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/api/payouts", payoutRoutes);
 app.use("/api/geocode", geocodeRoutes);
 app.use("/api/verification", verificationRoutes);
 app.use("/api/drafts", draftRoutes);
@@ -151,3 +166,5 @@ app.use("/uploads", express.static("uploads"));
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+setupEscrowRelease();
+makeUserHost("691d1cf75cac786afa011ada");
