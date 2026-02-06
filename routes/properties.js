@@ -10,7 +10,7 @@ const { deleteFromR2 } = require("../utils/uploadService");
 const validatePricing = require("../middleware/validatePricing");
 const Draft = require("../models/Draft");
 const User = require("../models/User");
-const { makeUserHost } = require("../utils/stripeConnect");
+const makeUserHost = require("../utils/stripeConnect");
 
 const router = express.Router();
 
@@ -190,7 +190,6 @@ router.post(
         "firstName",
         "phoneNumber",
         "address",
-        "country",
         "profileImage",
         "payoutMethods",
         "dob",
@@ -199,8 +198,6 @@ router.post(
       const missingFields = requiredFields.filter(
         (field) => !user[field] || user[field].toString().trim() === ""
       );
-
-      console.log(req.user);
 
       if (missingFields.length > 0) {
         return res.status(403).json({
@@ -228,27 +225,29 @@ router.post(
 
       const savedProperty = await property.save();
 
-      if (req.body.draftId) {
-        const deletedDoc = await Draft.findOneAndDelete({
-          _id: req.body.draftId,
-          user: req.user.id,
-        });
+      // if (req.body.draftId) {
+      //   const deletedDoc = await Draft.findOneAndDelete({
+      //     _id: req.body.draftId,
+      //     user: req.user.id,
+      //   });
 
-        if (!deletedDoc) {
-          console.log("No draft found with that ID for this user.");
-        } else {
-          console.log("Draft successfully deleted:", deletedDoc._id);
-        }
-      } else {
-        console.log("No draftId provided in the request body.");
-      }
+      //   if (!deletedDoc) {
+      //     console.log("No draft found with that ID for this user.");
+      //   } else {
+      //     console.log("Draft successfully deleted:", deletedDoc._id);
+      //   }
+      // } else {
+      //   console.log("No draftId provided in the request body.");
+      // }
 
       const propertyCount = await Property.countDocuments({
         host: req.user.id,
       });
 
+      console.log(propertyCount);
+
       // 3️⃣ If this is the first property, mark user as host & create Stripe account
-      if (propertyCount === 1) {
+      if (propertyCount !== 1) {
         // This is the first property
         const updatedUser = await makeUserHost(req.user.id);
         console.log("User marked as host:", updatedUser.isHost);

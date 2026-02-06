@@ -1,26 +1,33 @@
 const nodemailer = require("nodemailer");
-require("dotenv").config();
+const dotenv = require("dotenv");
 
-const sendEmail = async (to, subject, text) => {
+dotenv.config({ path: "./config.env" });
+
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  host: process.env.MAIL_HOST,
+  port: 587,
+  secure: false,
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS, // Gmail App Password
+  },
+});
+
+const sendEmail = async ({ to, subject, text, html }) => {
   try {
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
-    });
-
     const info = await transporter.sendMail({
-      from: process.env.EMAIL_USER,
+      from: `"Vencome" <${process.env.EMAIL_USER}>`,
       to,
       subject,
       text,
+      html,
     });
 
-    console.log("Email sent:", info.response);
+    console.log("Email sent:", info.messageId);
   } catch (err) {
     console.error("Error sending email:", err);
+    throw err; // IMPORTANT: bubble up errors
   }
 };
 

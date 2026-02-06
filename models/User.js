@@ -73,19 +73,106 @@ const paymentMethodSchema = new mongoose.Schema({
 });
 
 // Schema for individual payout methods (cards, bank accounts)
-const payoutMethodSchema = new mongoose.Schema({
-  type: {
-    type: String,
-    enum: ["card", "bank_account", "paypal"],
-    required: true,
+// const payoutMethodSchema = new mongoose.Schema({
+//   type: {
+//     type: String,
+//     enum: ["card", "bank_account", "paypal"],
+//     required: true,
+//   },
+//   brand: String, // Visa, Mastercard, Verve, etc. Only for cards
+//   last4: String, // Last 4 digits, for cards or bank
+//   cardNumber: String, // masked card number (optional)
+//   stripeCardId: String, // Stripe token/card ID
+//   bankAccount: {
+//     bankName: String,
+//     accountNumber: String,
+//     routingNumber: String,
+//     country: String,
+//     currency: String,
+//     last4: String,
+//   },
+//   isDefault: { type: Boolean, default: false },
+//   createdAt: { type: Date, default: Date.now },
+// });
+
+const payoutMethodSchema = new mongoose.Schema(
+  {
+    type: {
+      type: String,
+      enum: ["card", "bank_account", "paypal"],
+      required: true,
+    },
+
+    provider: {
+      type: String,
+      enum: ["stripe", "paypal", "manual"],
+      default: "stripe",
+    },
+
+    country: {
+      type: String,
+      required: true,
+    },
+
+    currency: {
+      type: String,
+      required: true,
+    },
+
+    clientIp: {
+      type: String,
+      required: true,
+    },
+
+    /* =====================
+       STRIPE IDENTIFIERS
+       ===================== */
+    stripeTokenId: {
+      type: String, // tok_*, btok_*
+    },
+
+    stripePaymentMethodId: {
+      type: String, // pm_*
+    },
+
+    stripeCardId: {
+      type: String, // card_*
+    },
+
+    /* =====================
+       CARD METADATA
+       ===================== */
+    card: {
+      brand: String, // Visa, Mastercard, Verve
+      last4: String,
+      expMonth: Number,
+      expYear: Number,
+    },
+
+    /* =====================
+       BANK METADATA (SAFE)
+       ===================== */
+    bankAccount: {
+      bankName: String,
+      last4: String, // US bank
+      ibanLast4: String, // SEPA
+    },
+
+    /* =====================
+       PAYPAL
+       ===================== */
+    paypal: {
+      email: String,
+      payerId: String,
+    },
+
+    isDefault: {
+      type: Boolean,
+      default: false,
+    },
   },
-  brand: String, // Visa, Mastercard, Verve, etc.
-  last4: String, // Last 4 digits
-  cardNumber: String, // masked card (optional)
-  stripeCardId: String, // Stripe token/card ID
-  isDefault: { type: Boolean, default: false },
-  createdAt: { type: Date, default: Date.now },
-});
+  { timestamps: true }
+);
 
 // Schema for actual payouts to host (history)
 const payoutHistorySchema = new mongoose.Schema({
@@ -144,10 +231,12 @@ const userSchema = new mongoose.Schema(
     phoneNumber: String,
     address: addressSchema,
     isVerified: { type: Boolean, default: false },
+    otp: String,
+    otpExpires: Date,
     profileImage: String,
     displayName: String,
     bio: String,
-    bankAccount: bankAccountSchema,
+    // bankAccount: bankAccountSchema,
     paymentMethods: [paymentMethodSchema], // your guest payment methods
     payoutMethods: [payoutMethodSchema], // host cards/banks for payouts
     payoutHistory: [payoutHistorySchema], // actual payouts sent to host

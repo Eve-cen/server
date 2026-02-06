@@ -80,104 +80,79 @@ const Payout = require("../models/Payout");
 // });
 
 router.post("/", auth, async (req, res) => {
-  const { type, tokenId, last4, brand, bankAccount } = req.body;
+  const { type, tokenId, clientIp, last4, brand, bankAccount, currency } =
+    req.body;
 
   if (!["card", "bank_account"].includes(type)) {
     return res.status(400).json({ error: "Invalid payout type" });
   }
 
-  try {
-    const user = await User.findById(req.user.id);
-    if (!user) return res.status(404).json({ error: "User not found" });
+  const user = await User.findById(req.user.id);
+  if (!user) return res.status(404).json({ error: "User not found" });
 
-    const isDefault = user.payoutMethods.length === 0;
+  const isDefault = user.payoutMethods.length === 0;
 
-    // unset previous defaults if first payout method
-    if (isDefault) {
-      user.payoutMethods.forEach((m) => (m.isDefault = false));
-    }
-
-    /* =======================
-       CARD PAYOUT
-    ======================= */
-    if (type === "card") {
-      if (!tokenId || !last4 || !brand) {
-        return res.status(400).json({ error: "Missing card data" });
-      }
-
-      const token = await stripe.tokens.retrieve(tokenId);
-      if (!token || token.used) {
-        return res.status(400).json({ error: "Invalid or expired token" });
-      }
-
-      if (!user.stripeCustomerId) {
-        const customer = await stripe.customers.create({
-          email: user.email,
-          name: `${user.firstName} ${user.lastName}`,
-          source: tokenId,
-        });
-        user.stripeCustomerId = customer.id;
-      } else {
-        await stripe.customers.createSource(user.stripeCustomerId, {
-          source: tokenId,
-        });
-      }
-
-      user.payoutMethods.push({
-        type: "card",
-        brand: brand.toLowerCase(),
-        last4,
-        cardNumber: `************${last4}`,
-        stripeCardId: tokenId,
-        isDefault,
-      });
-    }
-
-    /* =======================
-       BANK ACCOUNT PAYOUT
-    ======================= */
-    if (type === "bank_account") {
-      if (
-        !bankAccount?.accountNumber ||
-        !bankAccount?.routingNumber ||
-        !bankAccount?.bankName ||
-        !bankAccount?.country ||
-        !bankAccount?.currency
-      ) {
-        return res.status(400).json({ error: "Incomplete bank details" });
-      }
-
-      user.payoutMethods.push({
-        type: "bank_account",
-        bankAccount: {
-          bankName: bankAccount.bankName,
-          country: bankAccount.country,
-          currency: bankAccount.currency,
-          accountNumber: bankAccount.accountNumber,
-          routingNumber: bankAccount.routingNumber,
-          last4: bankAccount.accountNumber.slice(-4),
-        },
-        isDefault,
-      });
-    }
-
-    await user.save();
-
-    res.status(201).json({
-      success: true,
-      payoutMethods: user.payoutMethods.map((m) => ({
-        _id: m._id,
-        type: m.type,
-        brand: m.brand,
-        last4: m.last4 || m.bankAccount?.last4,
-        isDefault: m.isDefault,
-        createdAt: m.createdAt,
-      })),
-    });
-  } catch (err) {
-    console.error("Add payout method error:", err);
-    res.status(500).json({ error: err.message || "Server error" });
+  // unset existing default
+  if (isDefault) {
+    user.payoutMethods.forEach((m) => (m.isDefault = false));
   }
+
+  if (type === "card") {
+    user.payoutMethods.push({
+      type: "card",
+      brand: brand?.toLowerCase(),
+      last4,
+      clientIp,
+      cardNumber: `************${last4}`,
+      stripeCardId: tokenId,
+      isDefault,
+    });
+  }
+
+  if (type === "bank_account") {
+    const payoutMethod = {
+      type: "bank_account",
+      provider: "stripe",
+      country: user.address.country,
+      currency,
+      clientIp,
+      stripeTokenId: tokenId || null,
+      isDefault,
+    };
+
+    // Only store display metadata when NOT using a token
+    if (!tokenId) {
+      payoutMethod.bankAccount = {
+        bankName: bankAccount.bankName || null,
+        last4: bankAccount.last4 || null,
+        ibanLast4: bankAccount.ibanLast4 || null,
+      };
+    }
+
+    user.payoutMethods.push(payoutMethod);
+  }
+
+  // if (type === "bank_account") {
+  //   user.payoutMethods.push({
+  //     type: "bank_account",
+  //     bankAccount: {
+  //       bankName: bankAccount.bankName,
+  //       accountNumber: bankAccount.accountNumber,
+  //       routingNumber: bankAccount.routingNumber,
+  //       country: bankAccount.country,
+  //       currency: bankAccount.currency,
+  //       last4: bankAccount.accountNumber.slice(-4),
+  //     },
+  //     isDefault,
+  //   });
+  // }
+
+  await user.save();
+
+  res.status(201).json({
+    success: true,
+    payoutMethods: user.payoutMethods,
+  });
 });
 
 // Get payout methods

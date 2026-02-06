@@ -29,7 +29,6 @@ const setupEscrowRelease = require("./utils/releaseEscrow");
 const cron = require("node-cron");
 const markCompletedBookings = require("./jobs/markCompletedBookings");
 const isSuspicious = require("./utils/suspicionEngine");
-const makeUserHost = require("./utils/stripeConnect");
 
 dotenv.config({ path: "./config.env" });
 
@@ -167,4 +166,3 @@ app.use("/uploads", express.static("uploads"));
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 setupEscrowRelease();
-makeUserHost("691d1cf75cac786afa011ada");
