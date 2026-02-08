@@ -4,53 +4,12 @@ const auth = require("../middleware/auth");
 const router = express.Router();
 
 // Update personal information (PUT /api/settings/personal)
-// router.put("/personal", auth, async (req, res) => {
-//   const {
-//     lastName,
-//     firstName,
-//     email,
-//     phoneNumber,
-//     floor,
-//     streetAddress,
-//     city,
-//     state,
-//     postalCode,
-//     dob,
-//     country,
-//     isVerified,
-//   } = req.body;
-
-//   try {
-//     const user = await User.findById(req.user.id);
-//     if (!user) return res.status(404).json({ error: "User not found" });
-
-//     user.lastName = lastName || user.lastName;
-//     user.firstName = firstName || user.firstName;
-//     user.email = email || user.email;
-//     user.phoneNumber = phoneNumber || user.phoneNumber;
-//     user.address = {
-//       floor,
-//       streetAddress,
-//       city,
-//       state,
-//       postalCode,
-//       country,
-//     };
-//     user.dob = dob || user.dob;
-//     if (isVerified !== undefined) user.isVerified = isVerified;
-
-//     const updatedUser = await user.save();
-//     res.json(updatedUser);
-//   } catch (err) {
-//     res.status(500).json({ error: "Server error", err });
-//   }
-// });
 
 router.put("/personal", auth, async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: "User not found" });
-
+    user.displayName = req.body.firstName ?? user.firstName;
     user.firstName = req.body.firstName ?? user.firstName;
     user.lastName = req.body.lastName ?? user.lastName;
     user.email = req.body.email ?? user.email;

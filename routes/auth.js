@@ -4,8 +4,13 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const sendEmail = require("../utils/sendEmail");
 const auth = require("../middleware/auth");
+const { OAuth2Client } = require("google-auth-library");
 const router = express.Router();
-const ip = require("ip");
+const dotenv = require("dotenv");
+
+dotenv.config({ path: "./config.env" });
+
+const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // Generate OTP
 const generateOTP = () => Math.floor(1000 + Math.random() * 9000).toString();
@@ -121,6 +126,74 @@ router.post("/login", async (req, res) => {
   } catch (err) {
     console.error("Login error:", err);
     res.status(500).json({ error: "Server error, please try again later" });
+  }
+});
+
+router.post("/google", async (req, res) => {
+  const { token } = req.body;
+
+  if (!token) {
+    return res.status(400).json({ error: "Google token is required" });
+  }
+
+  try {
+    // 1️⃣ Verify Google token
+    const ticket = await client.verifyIdToken({
+      idToken: token,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+
+    const payload = ticket.getPayload();
+
+    const {
+      email,
+      given_name,
+      family_name,
+      picture,
+      email_verified,
+      sub: googleId,
+    } = payload;
+
+    if (!email_verified) {
+      return res.status(401).json({ error: "Google email not verified" });
+    }
+
+    // 2️⃣ Find or create user
+    let user = await User.findOne({ email });
+
+    if (!user) {
+      user = new User({
+        email,
+        firstName: given_name,
+        lastName: family_name,
+        profileImage: picture,
+        googleId,
+        authProvider: "google",
+        password: await bcrypt.hash(googleId, 10), // fallback, never used directly
+        isEmailVerified: true,
+      });
+
+      await user.save();
+    }
+
+    // 3️⃣ Generate JWT
+    const jwtToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
+      expiresIn: "30d",
+    });
+
+    res.json({
+      token: jwtToken,
+      user: {
+        id: user._id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        avatar: user.avatar,
+      },
+    });
+  } catch (err) {
+    console.error("Google auth error:", err);
+    res.status(401).json({ error: "Invalid Google token" });
   }
 });
 

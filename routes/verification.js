@@ -31,6 +31,7 @@ router.post("/create-verification-session", auth, async (req, res) => {
     // Save session ID to user (optional)
     await require("../models/User").findByIdAndUpdate(req.user.id, {
       stripeVerificationSessionId: session.id,
+      isIdentityVerified: true,
     });
 
     res.json({ clientSecret: session.client_secret });

@@ -231,6 +231,7 @@ const userSchema = new mongoose.Schema(
     phoneNumber: String,
     address: addressSchema,
     isVerified: { type: Boolean, default: false },
+    isIdentityVerified: { type: Boolean, default: false },
     otp: String,
     otpExpires: Date,
     profileImage: String,
@@ -246,6 +247,14 @@ const userSchema = new mongoose.Schema(
     isHost: { type: Boolean, default: false },
     stripeAccountId: String, // Stripe Connect account
     ip: String,
+    googleId: { type: String },
+    authProvider: {
+      type: String,
+      enum: ["local", "google"],
+      default: "local",
+    },
+    avatar: String,
+    isEmailVerified: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
