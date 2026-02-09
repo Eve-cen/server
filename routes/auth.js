@@ -54,7 +54,6 @@ router.post("/login", async (req, res) => {
         password: hashedPassword,
         isVerified: false,
       });
-      await user.save();
       isNewUser = true;
     }
 
@@ -64,10 +63,8 @@ router.post("/login", async (req, res) => {
     user.otpExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
     await user.save();
 
-    console.log("Login/Signup OTP:", otp);
-
     // Send OTP email
-    await sendEmail({
+    sendEmail({
       to: normalizedEmail,
       subject: isNewUser
         ? "Verify Your Email Address"
