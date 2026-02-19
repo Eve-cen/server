@@ -11,6 +11,7 @@ const validatePricing = require("../middleware/validatePricing");
 const Draft = require("../models/Draft");
 const User = require("../models/User");
 const makeUserHost = require("../utils/stripeConnect");
+const sendEmail = require("../utils/sendEmail");
 
 const router = express.Router();
 
@@ -244,19 +245,89 @@ router.post(
         host: req.user.id,
       });
 
-      console.log(propertyCount);
-
       // 3️⃣ If this is the first property, mark user as host & create Stripe account
-      if (propertyCount !== 1) {
+      if (propertyCount === 1) {
         // This is the first property
         const updatedUser = await makeUserHost(req.user.id);
-        console.log("User marked as host:", updatedUser.isHost);
       }
 
       res.status(201).json({
         success: true,
         message: "Property created successfully",
         property: savedProperty,
+      });
+      const displayName = user.displayName || user.firstName || "there";
+
+      sendEmail({
+        to: user.email,
+        subject: "Your property has been created successfully 🎉",
+        html: `
+               <div style="font-family: 'Manrope', Arial, sans-serif; background-color: #f4f4f7; padding: 20px;">
+  <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+
+<!-- Header -->
+<div style="background-color: #f0f0f0; padding: 20px; text-align: center;">
+  <img src="https://vencome.netlify.app/logo-blue.png" alt="VenCome" style="max-width: 150px;">
+</div>
+
+<!-- Body -->
+<div style="padding: 30px; color: #333;">
+  <h2 style="color: #305CDE; text-align: center; margin-top: 0;">
+    Property Created Successfully 🎉
+  </h2>
+
+  <p>Hi <strong>${displayName}</strong>,</p>
+
+  <p>
+    Your property has been successfully created on <strong>VenCome</strong>.
+    Here are the details:
+  </p>
+
+  <!-- Property Summary -->
+  <div style="background-color: #f5f7ff; padding: 20px; margin: 25px 0; border-radius: 8px;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="font-size: 14px;">
+      <tr>
+        <td style="padding: 6px 0; color: #666;">Property name</td>
+        <td style="padding: 6px 0; text-align: right; font-weight: 600;">
+          ${property.title || "—"}
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 6px 0; color: #666;">Location</td>
+        <td style="padding: 6px 0; text-align: right; font-weight: 600;">
+          ${property.location.city || ""}${
+          property.location.country ? `, ${property.location.country}` : ""
+        }
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 6px 0; color: #666;">Created on</td>
+        <td style="padding: 6px 0; text-align: right; font-weight: 600;">
+          ${new Date(property.createdAt).toLocaleDateString()}
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <p>
+    You can now update availability, pricing, and amenities from your dashboard.
+  </p>
+
+  <p style="margin-bottom: 0;">
+    If you didn’t create this property, please contact our support team immediately.
+  </p>
+</div>
+
+<!-- Footer -->
+<div style="background-color: #f0f0f0; padding: 20px; text-align: center; font-size: 12px; color: #888;">
+  This is an automated message, please do not reply.<br />
+  © ${new Date().getFullYear()} VenCome. All rights reserved.
+</div>
+
+  </div>
+</div>
+
+              `,
       });
     } catch (err) {
       console.error("Error creating property:", err);
@@ -581,9 +652,78 @@ router.delete("/:id", auth, async (req, res) => {
 
     await property.deleteOne();
 
-    res.json({
-      success: true,
-      message: "Property deleted successfully",
+    res.status(204).send();
+
+    const user = await User.findById(req.user.id);
+    const displayName = user.displayName || user.firstName || "there";
+
+    sendEmail({
+      to: user.email,
+      subject: "Your property has been deleted",
+      html: `
+    <div style="font-family: 'Manrope', Arial, sans-serif; background-color: #f4f4f7; padding: 20px;">
+  <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4fpx 12px rgba(0,0,0,0.05);">
+
+<!-- Header -->
+<div style="background-color: #f0f0f0; padding: 20px; text-align: center;">
+  <img src="https://vencome.netlify.app/logo-blue.png" alt="VenCome" style="max-width: 150px;">
+</div>
+
+<!-- Body -->
+<div style="padding: 30px; color: #333;">
+  <h2 style="color: #305CDE; text-align: center; margin-top: 0;">
+    Property Deleted
+  </h2>
+
+  <p>Hi <strong>${displayName}</strong>,</p>
+
+  <p>
+    This is to confirm that the following property has been successfully deleted from your VenCome account:
+  </p>
+
+  <!-- Property Summary -->
+  <div style="background-color: #f5f7ff; padding: 20px; margin: 25px 0; border-radius: 8px;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="font-size: 14px;">
+      <tr>
+        <td style="padding: 6px 0; color: #666;">Property name</td>
+        <td style="padding: 6px 0; text-align: right; font-weight: 600;">
+          ${property.title || "—"}
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 6px 0; color: #666;">Location</td>
+        <td style="padding: 6px 0; text-align: right; font-weight: 600;">
+          ${property.location.city || ""}${
+        property.location.country ? `, ${property.location.country}` : ""
+      }
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 6px 0; color: #666;">Deleted on</td>
+        <td style="padding: 6px 0; text-align: right; font-weight: 600;">
+          ${new Date().toLocaleDateString()}
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <p>
+    Once a property is deleted, it is no longer visible or bookable on VenCome.
+  </p>
+
+  <p style="margin-bottom: 0;">
+    You can create a new property at any time from your dashboard.
+  </p>
+</div>
+
+<!-- Footer -->
+<div style="background-color: #f0f0f0; padding: 20px; text-align: center; font-size: 12px; color: #888;">
+  This is an automated message, please do not reply.<br />
+  © ${new Date().getFullYear()} VenCome. All rights reserved.
+</div>
+
+  </div>
+</div>`,
     });
   } catch (err) {
     console.error("Error deleting property:", err);

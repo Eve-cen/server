@@ -98,7 +98,7 @@ async function makeUserHost(userId) {
     
     <!-- Header / Logo -->
     <div style="background-color: #f0f0f0; padding: 20px; text-align: center;">
-      <img src="https://vencome.netlify.app/logo-blue.png" alt="Vencome" style="max-width: 150px; height: auto;">
+      <img src="https://vencome.netlify.app/logo-blue.png" alt="VenCome" style="max-width: 150px; height: auto;">
     </div>
 
     <!-- Body -->
@@ -119,7 +119,7 @@ async function makeUserHost(userId) {
 
     <!-- Footer -->
     <div style="background-color: #f0f0f0; padding: 20px; text-align: center; font-size: 12px; color: #888;">
-      © ${new Date().getFullYear()} Vencome. All rights reserved.
+      © ${new Date().getFullYear()} VenCome. All rights reserved.
     </div>
   </div>
 </div>

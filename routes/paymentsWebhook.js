@@ -3,6 +3,8 @@ const router = express.Router();
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const Booking = require("../models/Booking");
 const Payment = require("../models/Payment");
+const User = require("../models/User");
+const sendEmail = require("../utils/sendEmail");
 
 router.post(
   "/",
@@ -64,6 +66,77 @@ router.post(
 
       const io = req.app.get("io");
       io.to(`guest_${booking.guest}`).emit("paymentSuccess", { bookingId });
+
+      const user = await User.findById(req.user.id);
+      const displayName = user.displayName || user.firstName || "there";
+
+      sendEmail({
+        to: user.email,
+        subject: "Your booking is confirmed 🎉",
+        html: `
+    <div style="font-family: 'Manrope', Arial, sans-serif; background-color: #f4f4f7; padding: 20px;">
+  <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+
+<!-- Header -->
+<div style="background-color: #f0f0f0; padding: 20px; text-align: center;">
+  <img src="https://vencome.netlify.app/logo-blue.png" alt="VenCome" style="max-width: 150px;">
+</div>
+
+<!-- Body -->
+<div style="padding: 30px; color: #333;">
+  <h2 style="color: #305CDE; text-align: center; margin-top: 0;">
+    Payment Successful 🎉
+  </h2>
+
+  <p>Hi <strong>${displayName}</strong>,</p>
+
+  <p>
+    We’ve successfully received your payment. Your booking is now <strong>fully secured</strong>.
+  </p>
+
+  <!-- Payment Summary -->
+  <div style="background-color: #f5f7ff; padding: 20px; margin: 25px 0; border-radius: 8px;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="font-size: 14px;">
+      <tr>
+        <td style="padding: 6px 0; color: #666;">Property</td>
+        <td style="padding: 6px 0; text-align: right; font-weight: 600;">
+          ${property.title || "—"}
+        </td>
+      </tr>
+      <tr>
+      <td style="padding: 6px 0; color: #666;">Amount paid</td>
+      <td style="padding: 6px 0; text-align: right; font-weight: 600;">
+      ${booking.totalPrice}
+      </td>
+      </tr>
+      <tr> <td style="padding: 6px 0; color: #666;">Payment date</td> <td style="padding: 6px 0; text-align: right; font-weight: 600;"> ${new Date().toLocaleDateString()} </td> </tr>
+    </table>
+  </div>
+
+  <p>
+    The host has been notified of your payment and booking details.
+  </p>
+
+  <p>
+    You can view or manage your booking anytime from your VenCome dashboard.
+  </p>
+
+  <p style="margin-bottom: 0;">
+    Thank you for choosing VenCome — we wish you a fantastic stay!
+  </p>
+</div>
+
+<!-- Footer -->
+<div style="background-color: #f0f0f0; padding: 20px; text-align: center; font-size: 12px; color: #888;">
+  This is an automated message, please do not reply.<br />
+  © ${new Date().getFullYear()} VenCome. All rights reserved.
+</div>
+
+  </div>
+</div>
+
+`,
+      });
 
       console.log(
         `Payment received for booking ${bookingId}. Escrow release at ${releaseDate}`

@@ -2,6 +2,8 @@ const express = require("express");
 const Booking = require("../models/Booking");
 const Property = require("../models/Property");
 const auth = require("../middleware/auth");
+const sendEmail = require("../utils/sendEmail");
+const User = require("../models/User");
 const router = express.Router();
 
 // POST: Create booking (guest)router.post("/", auth, async (req, res) => {
@@ -137,6 +139,100 @@ router.post("/", auth, async (req, res) => {
     await booking.save();
     await booking.populate(["guest", "property", "host"]);
 
+    const user = await User.findById(req.user.id);
+    const displayName = user.displayName || user.firstName || "there";
+
+    sendEmail({
+      to: user.email,
+      subject: "Your booking is confirmed 🎉",
+      html: `
+    <div style="font-family: 'Manrope', Arial, sans-serif; background-color: #f4f4f7; padding: 20px;">
+  <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+
+<!-- Header -->
+<div style="background-color: #f0f0f0; padding: 20px; text-align: center;">
+  <img src="https://vencome.netlify.app/logo-blue.png" alt="VenCome" style="max-width: 150px;">
+</div>
+
+<!-- Body -->
+<div style="padding: 30px; color: #333;">
+  <h2 style="color: #305CDE; text-align: center; margin-top: 0;">
+    Booking Confirmed 🎉
+  </h2>
+
+  <p>Hi <strong>${displayName}</strong>,</p>
+
+  <p>
+    Great news! Your booking has been <strong>successfully confirmed</strong>.
+  </p>
+
+  <!-- Booking Summary -->
+  <div style="background-color: #f5f7ff; padding: 20px; margin: 25px 0; border-radius: 8px;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="font-size: 14px;">
+      <tr>
+        <td style="padding: 6px 0; color: #666;">Property</td>
+        <td style="padding: 6px 0; text-align: right; font-weight: 600;">
+          ${property.title || "—"}
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 6px 0; color: #666;">Location</td>
+        <td style="padding: 6px 0; text-align: right; font-weight: 600;">
+          ${property.location.city || ""}${
+        property.location.country ? `, ${property.location.country}` : ""
+      }
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 6px 0; color: #666;">Check-in</td>
+        <td style="padding: 6px 0; text-align: right; font-weight: 600;">
+          ${booking.checkIn.toLocaleDateString()}
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 6px 0; color: #666;">Check-out</td>
+        <td style="padding: 6px 0; text-align: right; font-weight: 600;">
+          ${booking.checkOut.toLocaleDateString()}
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 6px 0; color: #666;">Guests</td>
+        <td style="padding: 6px 0; text-align: right; font-weight: 600;">
+          ${booking.guests}
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 6px 0; color: #666;">Total paid</td>
+        <td style="padding: 6px 0; text-align: right; font-weight: 600;">
+          ${booking.totalPrice}
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <p>
+    The host has been notified of your booking and may contact you with additional details before your stay.
+  </p>
+
+  <p>
+    You can pay for, view or manage your booking anytime from your VenCome dashboard.
+  </p>
+
+  <p style="margin-bottom: 0;">
+    We wish you a wonderful stay!
+  </p>
+</div>
+
+<!-- Footer -->
+<div style="background-color: #f0f0f0; padding: 20px; text-align: center; font-size: 12px; color: #888;">
+  This is an automated message, please do not reply.<br />
+  © ${new Date().getFullYear()} VenCome. All rights reserved.
+</div>
+
+  </div>
+</div>
+`,
+    });
     return res.status(201).json(booking);
   } catch (err) {
     console.error("Booking creation failed:", err);

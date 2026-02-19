@@ -75,7 +75,7 @@ router.get("/me", auth, async (req, res) => {
 
 //     <!-- Header / Logo -->
 //     <div style="background-color: #f0f0f0; padding: 20px; text-align: center;">
-//       <img src="https://vencome.netlify.app/logo-blue.png" alt="Vencome" style="max-width: 150px; height: auto;">
+//       <img src="https://vencome.netlify.app/logo-blue.png" alt="VenCome" style="max-width: 150px; height: auto;">
 //     </div>
 
 //     <!-- Body -->
@@ -108,7 +108,7 @@ router.get("/me", auth, async (req, res) => {
 //     <!-- Footer -->
 //     <div style="background-color: #f0f0f0; padding: 20px; text-align: center; font-size: 12px; color: #888;">
 //       This is an automated message, please do not reply. <br />
-//       © ${new Date().getFullYear()} Vencome. All rights reserved.
+//       © ${new Date().getFullYear()} VenCome. All rights reserved.
 //     </div>
 //   </div>
 // </div>
@@ -177,7 +177,7 @@ router.post("/login", async (req, res) => {
       
           <!-- Header / Logo -->
           <div style="background-color: #f0f0f0; padding: 20px; text-align: center;">
-            <img src="https://vencome.netlify.app/logo-blue.png" alt="Vencome" style="max-width: 150px; height: auto;">
+            <img src="https://vencome.netlify.app/logo-blue.png" alt="VenCome" style="max-width: 150px; height: auto;">
           </div>
       
           <!-- Body -->
@@ -210,7 +210,7 @@ router.post("/login", async (req, res) => {
           <!-- Footer -->
           <div style="background-color: #f0f0f0; padding: 20px; text-align: center; font-size: 12px; color: #888;">
             This is an automated message, please do not reply. <br />
-            © ${new Date().getFullYear()} Vencome. All rights reserved.
+            © ${new Date().getFullYear()} VenCome. All rights reserved.
           </div>
         </div>
       </div>
@@ -361,7 +361,7 @@ router.post("/forgot-password", async (req, res) => {
     
     <!-- Header / Logo -->
     <div style="background-color: #f0f0f0; padding: 20px; text-align: center;">
-      <img src="https://vencome.netlify.app/logo-blue.png" alt="Vencome" style="max-width: 150px; height: auto;">
+      <img src="https://vencome.netlify.app/logo-blue.png" alt="VenCome" style="max-width: 150px; height: auto;">
     </div>
 
     <!-- Body -->
@@ -384,7 +384,7 @@ router.post("/forgot-password", async (req, res) => {
     <!-- Footer -->
     <div style="background-color: #f0f0f0; padding: 20px; text-align: center; font-size: 12px; color: #888;">
       This is an automated message, please do not reply. <br />
-      © ${new Date().getFullYear()} Vencome. All rights reserved.
+      © ${new Date().getFullYear()} VenCome. All rights reserved.
     </div>
   </div>
 </div>
@@ -451,7 +451,7 @@ router.post("/reset-password", async (req, res) => {
     
     <!-- Header / Logo -->
     <div style="background-color: #f0f0f0; padding: 20px; text-align: center;">
-      <img src="https://vencome.netlify.app/logo-blue.png" alt="Vencome" style="max-width: 150px; height: auto;">
+      <img src="https://vencome.netlify.app/logo-blue.png" alt="VenCome" style="max-width: 150px; height: auto;">
     </div>
 
     <!-- Body -->
@@ -466,7 +466,7 @@ router.post("/reset-password", async (req, res) => {
     <!-- Footer -->
     <div style="background-color: #f0f0f0; padding: 20px; text-align: center; font-size: 12px; color: #888;">
       This is an automated message, please do not reply. <br />
-      © ${new Date().getFullYear()} Vencome. All rights reserved.
+      © ${new Date().getFullYear()} VenCome. All rights reserved.
     </div>
   </div>
   </div>
