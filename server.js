@@ -132,7 +132,11 @@ cron.schedule("0 0 * * *", async () => {
   await markCompletedBookings();
 });
 
-app.use("/api/payments/webhook", paymentsWebhook);
+app.use(
+  "/api/payments/webhook",
+  express.raw({ type: "application/json" }),
+  paymentsWebhook
+);
 
 // Body parsing middleware
 app.use(express.json({ limit: "10mb" }));

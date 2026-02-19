@@ -202,7 +202,7 @@ router.post("/", auth, async (req, res) => {
         </td>
       </tr>
       <tr>
-        <td style="padding: 6px 0; color: #666;">Total paid</td>
+        <td style="padding: 6px 0; color: #666;">Total to be paid</td>
         <td style="padding: 6px 0; text-align: right; font-weight: 600;">
           ${booking.totalPrice}
         </td>
