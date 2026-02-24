@@ -27,105 +27,6 @@ router.get("/me", auth, async (req, res) => {
   }
 });
 
-// Login/Signup - Step 1: Send OTP
-// router.post("/login", async (req, res) => {
-//   const { email, password } = req.body;
-
-//   if (!email || !password) {
-//     return res.status(400).json({ error: "Email and password are required" });
-//   }
-
-//   try {
-//     const normalizedEmail = email.toLowerCase().trim();
-//     let user = await User.findOne({ email: normalizedEmail });
-//     let isNewUser = false;
-
-//     if (user) {
-//       // Existing user - verify password
-//       const isMatch = await bcrypt.compare(password, user.password);
-//       if (!isMatch) {
-//         return res.status(401).json({ error: "Invalid credentials" });
-//       }
-//     } else {
-//       // New user - create account
-//       const hashedPassword = await bcrypt.hash(password, 10);
-//       user = new User({
-//         email: normalizedEmail,
-//         password: hashedPassword,
-//         isVerified: false,
-//       });
-//       isNewUser = true;
-//     }
-
-//     // Generate and save OTP
-//     const otp = generateOTP();
-//     user.otp = otp;
-//     user.otpExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
-//     await user.save();
-
-//     // Send OTP email
-//     sendEmail({
-//       to: normalizedEmail,
-//       subject: isNewUser
-//         ? "Verify Your Email Address"
-//         : "Login Verification Code",
-//       html: `
-//         <div style="font-family: 'Manrope', Arial, sans-serif; background-color: #f4f4f7; padding: 20px;">
-//   <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
-
-//     <!-- Header / Logo -->
-//     <div style="background-color: #f0f0f0; padding: 20px; text-align: center;">
-//       <img src="https://vencome.netlify.app/logo-blue.png" alt="VenCome" style="max-width: 150px; height: auto;">
-//     </div>
-
-//     <!-- Body -->
-//     <div style="padding: 30px; color: #333;">
-//       <h2 style="color: #305CDE; margin-top: 0; text-align: center;">
-//         ${isNewUser ? "Welcome! Verify Your Email" : "Login Verification"}
-//       </h2>
-//       <p>Hi,</p>
-//       <p>
-//         ${
-//           isNewUser
-//             ? "Thank you for signing up! Please verify your email address using the OTP below:"
-//             : "We received a login request for your account. Use the OTP below to continue:"
-//         }
-//       </p>
-
-//       <!-- OTP Code -->
-//       <div style="background-color: #f4f4f4; padding: 20px; text-align: center; margin: 25px 0; border-radius: 8px;">
-//         <span style="font-size: 28px; font-weight: bold; color: #305CDE; letter-spacing: 6px;">
-//           ${otp}
-//         </span>
-//       </div>
-
-//       <p>This OTP will expire in <strong>10 minutes</strong>.</p>
-//       <p>If you didn't ${
-//         isNewUser ? "create an account" : "request to login"
-//       }, please ignore this email.</p>
-//     </div>
-
-//     <!-- Footer -->
-//     <div style="background-color: #f0f0f0; padding: 20px; text-align: center; font-size: 12px; color: #888;">
-//       This is an automated message, please do not reply. <br />
-//       © ${new Date().getFullYear()} VenCome. All rights reserved.
-//     </div>
-//   </div>
-// </div>
-//       `,
-//     });
-
-//     res.json({
-//       message: "OTP sent to email. Please verify to complete login.",
-//       requiresVerification: true,
-//       isNewUser,
-//     });
-//   } catch (err) {
-//     console.error("Login error:", err);
-//     res.status(500).json({ error: "Server error, please try again later" });
-//   }
-// });
-
 router.post("/login", async (req, res) => {
   const { email, password } = req.body;
 
@@ -306,8 +207,6 @@ router.post("/verify-login", async (req, res) => {
       return res.status(400).json({ error: "User not found" });
     }
 
-    console.log(user);
-
     if (user.otp !== otp || user.otpExpires < Date.now()) {
       return res.status(400).json({ error: "Invalid or expired OTP" });
     }
@@ -348,7 +247,6 @@ router.post("/forgot-password", async (req, res) => {
 
     const otp = generateOTP();
     user.otp = otp;
-    console.log("Password Reset OTP:", otp);
     user.otpExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
     await user.save();
 

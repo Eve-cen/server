@@ -224,8 +224,6 @@ router.post(
         category: category && category.trim() ? category : undefined,
       });
 
-      const savedProperty = await property.save();
-
       // if (req.body.draftId) {
       //   const deletedDoc = await Draft.findOneAndDelete({
       //     _id: req.body.draftId,
@@ -245,11 +243,17 @@ router.post(
         host: req.user.id,
       });
 
+      console.log(propertyCount);
+
       // 3️⃣ If this is the first property, mark user as host & create Stripe account
       if (propertyCount === 1) {
+        console.log(`property count is ${propertyCount}`);
         // This is the first property
-        const updatedUser = await makeUserHost(req.user.id);
+        await makeUserHost(req.user.id);
+        return;
       }
+
+      const savedProperty = await property.save();
 
       res.status(201).json({
         success: true,

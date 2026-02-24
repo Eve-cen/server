@@ -234,7 +234,11 @@ const userSchema = new mongoose.Schema(
     isIdentityVerified: { type: Boolean, default: false },
     otp: String,
     otpExpires: Date,
-    profileImage: String,
+    profileImage: {
+      type: String,
+      default:
+        "https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y&s=200",
+    },
     displayName: String,
     bio: String,
     // bankAccount: bankAccountSchema,

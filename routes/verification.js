@@ -6,8 +6,6 @@ const router = express.Router();
 
 // Create Identity Verification Session
 router.post("/create-verification-session", auth, async (req, res) => {
-  console.log("Hit verification create route");
-
   try {
     const session = await stripe.identity.verificationSessions.create({
       type: "document",

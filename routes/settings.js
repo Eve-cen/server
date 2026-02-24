@@ -24,7 +24,19 @@ router.put("/personal", auth, async (req, res) => {
       country: req.body.address?.country,
     };
 
-    user.dob = req.body.dob ?? user.dob;
+    // Parse dob string into { day, month, year } before saving
+    if (req.body.dob) {
+      const date = new Date(req.body.dob);
+      if (!isNaN(date)) {
+        user.dob = {
+          day: date.getUTCDate(),
+          month: date.getUTCMonth() + 1, // months are 0-indexed
+          year: date.getUTCFullYear(),
+        };
+      }
+    } else {
+      user.dob = user.dob; // keep existing
+    }
 
     if (req.body.isVerified !== undefined) {
       user.isVerified = req.body.isVerified;

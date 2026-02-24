@@ -80,7 +80,6 @@ const sendEmail = async ({ to, subject, text, html }) => {
     };
 
     await sgMail.send(msg);
-    console.log("Email sent successfully via SendGrid");
   } catch (err) {
     console.error("Error sending email:", err.response?.body || err.message);
     throw err; // bubble up errors (important for APIs)

@@ -84,8 +84,8 @@ async function makeUserHost(userId) {
 
   const accountLink = await stripe.accountLinks.create({
     account: account.id,
-    refresh_url: "https://vencome.netlify.app/stripe/refresh",
-    return_url: "https://vencome.netlify.app/stripe/success",
+    refresh_url: "https://vencome.netlify.app/",
+    return_url: "https://vencome.netlify.app/",
     type: "account_onboarding",
   });
 
