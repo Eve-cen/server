@@ -36,21 +36,21 @@ const app = express();
 
 app.set("trust proxy", true);
 const server = http.createServer(app);
-// const io = socketIo(server, {
-//   cors: {
-//     origin: "http://localhost:5173",
-//     // origin: "https://evencen.onrender.com",
-//     methods: ["GET", "POST"],
-//     credentials: true,
-//   },
-// });
-
 const io = socketIo(server, {
   cors: {
-    origin: true,
+    // origin: process.env.CLIENT_URL_DEV,
+    origin: process.env.CLIENT_URL,
+    methods: ["GET", "POST"],
     credentials: true,
   },
 });
+
+// const io = socketIo(server, {
+//   cors: {
+//     origin: true,
+//     credentials: true,
+//   },
+// });
 
 // Socket.IO Authentication Middleware
 io.use((socket, next) => {
