@@ -22,66 +22,6 @@ const s3Client = new S3Client({
 const BUCKET_NAME = process.env.R2_BUCKET_NAME;
 const MULTIPART_THRESHOLD = 52428800; // 50MB
 
-// const uploadToR2 = async (filePath, fileName) => {
-//   try {
-//     const fileStats = fs.statSync(filePath);
-//     const fileStream = fs.createReadStream(filePath);
-
-//     let result;
-
-//     // Use multipart upload for files larger than 50MB
-//     if (fileStats.size > MULTIPART_THRESHOLD) {
-//       console.log(
-//         `Using multipart upload for ${fileName} (${fileStats.size} bytes)`
-//       );
-
-//       const upload = new Upload({
-//         client: s3Client,
-//         params: {
-//           Bucket: BUCKET_NAME,
-//           Key: fileName,
-//           Body: fileStream,
-//         },
-//       });
-
-//       result = await upload.done();
-//       console.log("Multipart upload completed:", result);
-//     } else {
-//       // Use standard PutObject for smaller files
-//       console.log(
-//         `Using standard upload for ${fileName} (${fileStats.size} bytes)`
-//       );
-
-//       const fileBuffer = fs.readFileSync(filePath);
-
-//       const command = new PutObjectCommand({
-//         Bucket: BUCKET_NAME,
-//         Key: fileName,
-//         Body: fileBuffer,
-//       });
-
-//       await s3Client.send(command);
-//       console.log("Standard upload completed");
-//     }
-
-//     // Construct the public URL
-//     const publicUrl = `${process.env.R2_PUBLIC_URL}/${fileName}`;
-
-//     // Clean up local file after successful upload
-//     fs.unlinkSync(filePath);
-//     console.log("Local file deleted:", filePath);
-
-//     return {
-//       success: true,
-//       location: publicUrl,
-//       key: fileName,
-//     };
-//   } catch (error) {
-//     console.error("Error uploading to R2:", error);
-//     throw error;
-//   }
-// };
-
 const uploadToR2 = async (filePath, fileName) => {
   try {
     const fileStats = fs.statSync(filePath);

@@ -5,14 +5,13 @@ const auth = require("../middleware/auth");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const uploadToR2 = require("../utils/uploadService");
 
-// Configure multer for draft images
+// Disk storage for drafts (needed for uploadToR2)
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const draftDir = "uploads/drafts";
-    if (!fs.existsSync(draftDir)) {
-      fs.mkdirSync(draftDir, { recursive: true });
-    }
+    if (!fs.existsSync(draftDir)) fs.mkdirSync(draftDir, { recursive: true });
     cb(null, draftDir);
   },
   filename: (req, file, cb) => {
@@ -30,62 +29,76 @@ const upload = multer({
       path.extname(file.originalname).toLowerCase()
     );
     const mimetype = allowedTypes.test(file.mimetype);
-
-    if (mimetype && extname) {
-      return cb(null, true);
-    }
+    if (mimetype && extname) return cb(null, true);
     cb(new Error("Only image files are allowed"));
   },
 });
 
+// Helper to delete multiple files from R2
+const deleteDraftImagesFromR2 = async (imageUrls) => {
+  await Promise.all(
+    imageUrls.map(async (url) => {
+      try {
+        const filename = url.split("/").pop();
+        await deleteFilesFromR2([filename]);
+      } catch (error) {
+        console.error(`Error deleting ${url}:`, error);
+      }
+    })
+  );
+};
+
 // @route   POST /api/drafts/save
-// @desc    Save or update draft
+// @desc    Save or update draft (R2-only)
 // @access  Private
 router.post("/save", auth, upload.array("images", 10), async (req, res) => {
   try {
     const userId = req.user.id;
     const draftData = JSON.parse(req.body.data);
+    console.log(req.files);
 
-    // Handle uploaded images
-    const newImages = req.files
-      ? req.files.map((file) => ({
-          url: `/uploads/drafts/${file.filename}`,
-          filename: file.filename,
-        }))
-      : [];
-
-    // Get existing draft to preserve images
-    let existingDraft = await Draft.findOne({ user: userId });
+    // Upload new images directly to R2
+    let newImages = [];
+    if (req.files?.length) {
+      newImages = await Promise.all(
+        req.files.map(async (file) => {
+          const result = await uploadToR2(file.path, file.filename);
+          return {
+            url: result.location,
+            filename: file.filename,
+          };
+        })
+      );
+    }
+    // Get existing draft
+    const existingDraft = await Draft.findOne({ user: userId });
     let existingImages = existingDraft?.images || [];
 
-    // Parse removedImages if provided
+    // Handle removed images
     const removedImages = req.body.removedImages
       ? JSON.parse(req.body.removedImages)
       : [];
 
-    // Remove deleted images from filesystem
     if (removedImages.length > 0) {
-      removedImages.forEach((filename) => {
-        const filePath = path.join(
-          __dirname,
-          "..",
-          "uploads",
-          "drafts",
-          filename
-        );
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
-        }
-      });
+      const imagesToDelete = existingImages.filter((img) =>
+        removedImages.includes(img.filename)
+      );
+      await deleteFilesFromR2(imagesToDelete.map((img) => img.url));
 
-      // Filter out removed images
       existingImages = existingImages.filter(
         (img) => !removedImages.includes(img.filename)
       );
     }
 
-    // Combine existing and new images
+    // Combine existing + new images
     const allImages = [...existingImages, ...newImages];
+
+    // Optional: enforce max images per draft
+    if (allImages.length > 10) {
+      return res
+        .status(400)
+        .json({ message: "Maximum 10 images allowed per draft" });
+    }
 
     // Update or create draft
     const draft = await Draft.findOneAndUpdate(

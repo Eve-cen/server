@@ -35,8 +35,8 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit per file
-  },
+    fileSize: 5 * 1024 * 1024,
+  }, // 5MB limit per file
   fileFilter: (req, file, cb) => {
     // Accept images only
     if (!file.mimetype.startsWith("image/")) {
@@ -152,8 +152,7 @@ router.post(
           return res.status(404).json({ error: "Category not found" });
         }
       }
-
-      // Upload images to R2
+      // 1️⃣ Upload new images to R2
       let r2ImageUrls = [];
       if (req.files && req.files.length > 0) {
         try {
@@ -167,7 +166,33 @@ router.post(
         }
       }
 
-      const coverImage = r2ImageUrls.length > 0 ? r2ImageUrls[0] : null;
+      // 2️⃣ Get existing draft images (if any)
+      let draftImages = [];
+      if (req.body.draftId) {
+        const draft = await Draft.findById(req.body.draftId);
+        draftImages = draft?.images || [];
+      }
+
+      // 3️⃣ Filter out any removed images sent from frontend
+      const removedImages = req.body.removedImages
+        ? JSON.parse(req.body.removedImages)
+        : [];
+
+      draftImages = draftImages.filter(
+        (img) => !removedImages.includes(img.filename)
+      );
+
+      // 4️⃣ Map uploaded URLs to image objects
+      const newImages = r2ImageUrls.map((url, index) => ({
+        url,
+        filename: req.files[index].originalname, // or unique filename
+      }));
+
+      // 5️⃣ Combine existing draft images + new uploads
+      const allImages = [...draftImages, ...newImages];
+
+      // 6️⃣ Set cover image
+      const coverImage = allImages.length > 0 ? allImages[0].url : null;
 
       const user = await User.findById(req.user.id);
 
@@ -214,7 +239,7 @@ router.post(
         description,
         location,
         coordinates,
-        images: r2ImageUrls, // Store R2 URLs instead of local paths
+        images: allImages, // Store R2 URLs instead of local paths
         coverImage: coverImage,
         features,
         extras: extras || [],
@@ -224,30 +249,21 @@ router.post(
         category: category && category.trim() ? category : undefined,
       });
 
-      // if (req.body.draftId) {
-      //   const deletedDoc = await Draft.findOneAndDelete({
-      //     _id: req.body.draftId,
-      //     user: req.user.id,
-      //   });
-
-      //   if (!deletedDoc) {
-      //     console.log("No draft found with that ID for this user.");
-      //   } else {
-      //     console.log("Draft successfully deleted:", deletedDoc._id);
-      //   }
-      // } else {
-      //   console.log("No draftId provided in the request body.");
-      // }
+      if (req.body.draftId) {
+        const deletedDoc = await Draft.findOneAndDelete({
+          _id: req.body.draftId,
+          user: req.user.id,
+        });
+      } else {
+        console.log("No draftId provided in the request body.");
+      }
 
       const propertyCount = await Property.countDocuments({
         host: req.user.id,
       });
 
-      console.log(propertyCount);
-
       // 3️⃣ If this is the first property, mark user as host & create Stripe account
-      if (propertyCount === 1) {
-        console.log(`property count is ${propertyCount}`);
+      if (propertyCount < 1) {
         // This is the first property
         await makeUserHost(req.user.id);
         return;

@@ -6,8 +6,6 @@ async function makeUserHost(userId) {
   const user = await User.findById(userId);
   if (!user) throw new Error("User not found");
 
-  console.log("run...");
-
   // Pick the default bank payout if exists, otherwise any bank
   const bankPayout =
     user.payoutMethods.find((m) => m.isDefault && m.type === "bank_account") ||

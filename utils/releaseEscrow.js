@@ -5,20 +5,20 @@ const User = require("../models/User");
 
 module.exports = function setupEscrowRelease() {
   // Runs every hour (you can change to '0 0 * * *' for daily at midnight)
-  cron.schedule("* * * * *", async () => {
+  cron.schedule("0 * * * *", async () => {
     console.log("[Escrow Release] Checking for bookings ready for payout...");
 
     try {
       const now = new Date();
 
       const readyBookings = await Booking.find({
-        // status: "completed",
-        // isPaid: true,
-        // escrowReleased: false,
-        // checkOut: { $lt: new Date(now.getTime() - 24 * 60 * 60 * 1000) }, // 24 hours ago
+        status: "completed",
+        isPaid: true,
+        escrowReleased: false,
+        checkOut: { $lt: new Date(now.getTime() - 24 * 60 * 60 * 1000) }, // 24 hours ago
       }).populate("host");
 
-      console.log(readyBookings);
+      // console.log(readyBookings);
 
       for (const booking of readyBookings) {
         const host = await User.findById(booking.host);
