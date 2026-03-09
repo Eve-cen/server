@@ -1,23 +1,86 @@
 const express = require("express");
 const User = require("../models/User");
 const auth = require("../middleware/auth");
+const multer = require("multer");
 const router = express.Router();
 
-// Update profile (PUT /api/profile)
-router.put("/", auth, async (req, res) => {
-  const { profileImage, displayName, bio } = req.body;
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = "uploads/temp/";
+    // Create temp directory if it doesn't exist
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    // Generate unique filename with timestamp
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, uniqueSuffix + "-" + file.originalname);
+  },
+});
 
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024,
+  },
+  fileFilter: (req, file, cb) => {
+    if (!file.mimetype.startsWith("image/")) {
+      return cb(new Error("Only image files are allowed!"), false);
+    }
+    cb(null, true);
+  },
+});
+
+// Update profile (PUT /api/profile)
+router.put("/", auth, upload.single("profileImage"), async (req, res) => {
   try {
+    const { displayName, bio } = req.body;
+
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    user.profileImage = profileImage || user.profileImage;
+    let profileImageUrl = user.profileImage;
+
+    // Upload new image if provided
+    if (req.file) {
+      try {
+        const result = await uploadToR2(req.file.path, req.file.filename);
+        profileImageUrl = result.location;
+
+        // delete old avatar from R2
+        if (user.profileImage) {
+          const oldFile = user.profileImage.split("/").pop();
+          await deleteFromR2(oldFile);
+        }
+
+        // remove temp file
+        if (fs.existsSync(req.file.path)) {
+          fs.unlinkSync(req.file.path);
+        }
+      } catch (uploadError) {
+        console.error(uploadError);
+
+        if (fs.existsSync(req.file.path)) {
+          fs.unlinkSync(req.file.path);
+        }
+
+        return res.status(500).json({
+          error: "Image upload failed",
+        });
+      }
+    }
+
+    user.profileImage = profileImageUrl;
     user.displayName = displayName || user.displayName;
     user.bio = bio || user.bio;
 
     const updatedUser = await user.save();
+
     res.json(updatedUser);
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: "Server error" });
   }
 });

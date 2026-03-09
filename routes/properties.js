@@ -12,6 +12,7 @@ const Draft = require("../models/Draft");
 const User = require("../models/User");
 const makeUserHost = require("../utils/stripeConnect");
 const sendEmail = require("../utils/sendEmail");
+const { client } = require("../utils/redisClient");
 
 const router = express.Router();
 
@@ -49,7 +50,6 @@ const upload = multer({
 // Helper function to upload multiple files to R2
 const uploadFilesToR2 = async (files) => {
   const uploadPromises = files.map(async (file) => {
-    console.log(file);
     try {
       const result = await uploadToR2(file.path, file.filename);
       return result.location; // Returns the R2 URL
@@ -185,14 +185,13 @@ router.post(
       // 4️⃣ Map uploaded URLs to image objects
       const newImages = r2ImageUrls.map((url, index) => ({
         url,
-        filename: req.files[index].originalname, // or unique filename
       }));
 
       // 5️⃣ Combine existing draft images + new uploads
-      const allImages = [...draftImages, ...newImages];
+      const allImages = [...draftImages.map((img) => img.url), ...r2ImageUrls];
 
       // 6️⃣ Set cover image
-      const coverImage = allImages.length > 0 ? allImages[0].url : null;
+      const coverImage = allImages.length > 0 ? allImages[0] : null;
 
       const user = await User.findById(req.user.id);
 
@@ -249,14 +248,14 @@ router.post(
         category: category && category.trim() ? category : undefined,
       });
 
-      if (req.body.draftId) {
-        const deletedDoc = await Draft.findOneAndDelete({
-          _id: req.body.draftId,
-          user: req.user.id,
-        });
-      } else {
-        console.log("No draftId provided in the request body.");
-      }
+      // if (req.body.draftId) {
+      //   const deletedDoc = await Draft.findOneAndDelete({
+      //     _id: req.body.draftId,
+      //     user: req.user.id,
+      //   });
+      // } else {
+      //   console.log("No draftId provided in the request body.");
+      // }
 
       const propertyCount = await Property.countDocuments({
         host: req.user.id,
@@ -393,14 +392,78 @@ router.get("/", async (req, res) => {
 });
 
 // ✅ Search properties
+// router.get("/search", async (req, res) => {
+//   const { location, category, minPrice, maxPrice, checkIn, checkOut } =
+//     req.query;
+
+//   try {
+//     let query = {};
+
+//     // Filter by location (search in address, city, or country)
+//     if (location) {
+//       query.$or = [
+//         { "location.address": { $regex: new RegExp(location, "i") } },
+//         { "location.city": { $regex: new RegExp(location, "i") } },
+//         { "location.country": { $regex: new RegExp(location, "i") } },
+//       ];
+//     }
+
+//     // Filter by category
+//     if (category) {
+//       const categoryExists = await Category.findById(category);
+//       if (!categoryExists) {
+//         return res.status(400).json({ error: "Invalid category ID" });
+//       }
+//       query.category = category;
+//     }
+
+//     // Filter by price range (using weekdayPrice)
+//     if (minPrice || maxPrice) {
+//       query["pricing.weekdayPrice"] = {};
+//       if (minPrice) query["pricing.weekdayPrice"].$gte = Number(minPrice);
+//       if (maxPrice) query["pricing.weekdayPrice"].$lte = Number(maxPrice);
+//     }
+
+//     // TODO: Implement proper availability check with checkIn/checkOut dates
+//     if (checkIn && checkOut) {
+//       console.log(`Date filtering requested: ${checkIn} to ${checkOut}`);
+//       // This would require checking against bookings
+//     }
+
+//     const properties = await Property.find(query)
+//       .populate("host", "email name")
+//       .populate("category", "name")
+//       .sort({ createdAt: -1 });
+
+//     res.json({
+//       success: true,
+//       count: properties.length,
+//       properties,
+//     });
+//   } catch (err) {
+//     console.error("Error searching properties:", err);
+//     res.status(500).json({ error: "Server error", details: err.message });
+//   }
+// });
+
 router.get("/search", async (req, res) => {
   const { location, category, minPrice, maxPrice, checkIn, checkOut } =
     req.query;
 
-  try {
-    let query = {};
+  // Create a unique cache key for this query
+  const cacheKey = `search:${location || "all"}:${category || "all"}:${
+    minPrice || 0
+  }:${maxPrice || 0}:${checkIn || "none"}:${checkOut || "none"}`;
 
-    // Filter by location (search in address, city, or country)
+  try {
+    // 1️⃣ Check Redis cache first
+    const cached = await client.get(cacheKey);
+    if (cached) {
+      return res.json({ success: true, ...JSON.parse(cached), cached: true });
+    }
+
+    // 2️⃣ Build MongoDB query
+    let query = {};
     if (location) {
       query.$or = [
         { "location.address": { $regex: new RegExp(location, "i") } },
@@ -409,38 +472,35 @@ router.get("/search", async (req, res) => {
       ];
     }
 
-    // Filter by category
     if (category) {
       const categoryExists = await Category.findById(category);
-      if (!categoryExists) {
+      if (!categoryExists)
         return res.status(400).json({ error: "Invalid category ID" });
-      }
       query.category = category;
     }
 
-    // Filter by price range (using weekdayPrice)
     if (minPrice || maxPrice) {
       query["pricing.weekdayPrice"] = {};
       if (minPrice) query["pricing.weekdayPrice"].$gte = Number(minPrice);
       if (maxPrice) query["pricing.weekdayPrice"].$lte = Number(maxPrice);
     }
 
-    // TODO: Implement proper availability check with checkIn/checkOut dates
-    if (checkIn && checkOut) {
-      console.log(`Date filtering requested: ${checkIn} to ${checkOut}`);
-      // This would require checking against bookings
-    }
+    // TODO: Implement proper availability filtering
 
     const properties = await Property.find(query)
       .populate("host", "email name")
       .populate("category", "name")
       .sort({ createdAt: -1 });
 
-    res.json({
-      success: true,
+    const responsePayload = {
       count: properties.length,
       properties,
-    });
+    };
+
+    // 3️⃣ Cache the result for 10 minutes (600 seconds)
+    await client.setEx(cacheKey, 600, JSON.stringify(responsePayload));
+
+    res.json({ success: true, ...responsePayload, cached: false });
   } catch (err) {
     console.error("Error searching properties:", err);
     res.status(500).json({ error: "Server error", details: err.message });
@@ -448,9 +508,55 @@ router.get("/search", async (req, res) => {
 });
 
 // ✅ Get property by ID
+// router.get("/:id", async (req, res) => {
+//   try {
+//     const property = await Property.findById(req.params.id)
+//       .populate("host", "email name")
+//       .populate("category", "name")
+//       .populate({
+//         path: "reviews",
+//         populate: {
+//           path: "user",
+//           select: "name avatar",
+//         },
+//       });
+
+//     if (!property) {
+//       return res.status(404).json({ error: "Property not found" });
+//     }
+
+//     res.json({
+//       success: true,
+//       property,
+//     });
+//   } catch (err) {
+//     console.error("Error fetching property:", err);
+
+//     // Handle invalid ObjectId format
+//     if (err.name === "CastError") {
+//       return res.status(400).json({ error: "Invalid property ID format" });
+//     }
+
+//     res.status(500).json({ error: "Server error", details: err.message });
+//   }
+// });
+
 router.get("/:id", async (req, res) => {
+  const propertyId = req.params.id;
+
   try {
-    const property = await Property.findById(req.params.id)
+    // 1️⃣ Check Redis cache first
+    const cached = await client.get(`property:${propertyId}`);
+    if (cached) {
+      return res.json({
+        success: true,
+        property: JSON.parse(cached),
+        cached: true,
+      });
+    }
+
+    // 2️⃣ Fetch from DB
+    const property = await Property.findById(propertyId)
       .populate("host", "email name")
       .populate("category", "name")
       .populate({
@@ -465,14 +571,17 @@ router.get("/:id", async (req, res) => {
       return res.status(404).json({ error: "Property not found" });
     }
 
-    res.json({
-      success: true,
-      property,
-    });
+    // 3️⃣ Cache property for 1 hour (3600s)
+    await client.setEx(
+      `property:${propertyId}`,
+      3600,
+      JSON.stringify(property)
+    );
+
+    res.json({ success: true, property, cached: false });
   } catch (err) {
     console.error("Error fetching property:", err);
 
-    // Handle invalid ObjectId format
     if (err.name === "CastError") {
       return res.status(400).json({ error: "Invalid property ID format" });
     }

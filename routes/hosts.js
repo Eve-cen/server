@@ -9,8 +9,9 @@ router.get("/:hostId", async (req, res) => {
 
     // Fetch host (public fields only)
     const host = await User.findById(hostId).select(
-      "name profileImage bio createdAt"
+      "displayName profileImage bio createdAt"
     );
+    console.log(host);
     if (!host) return res.status(404).json({ error: "Host not found" });
 
     // Count total listings

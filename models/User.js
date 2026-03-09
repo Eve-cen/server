@@ -221,6 +221,13 @@ const addressSchema = new mongoose.Schema({
   country: { type: String },
 });
 
+const businessVerificationSchema = new mongoose.Schema({
+  companyName: { type: String },
+  websiteURL: { type: String },
+  vat: { type: String },
+  verifiedAt: { type: Date },
+});
+
 // Main User schema
 const userSchema = new mongoose.Schema(
   {
@@ -246,6 +253,8 @@ const userSchema = new mongoose.Schema(
     payoutMethods: [payoutMethodSchema], // host cards/banks for payouts
     payoutHistory: [payoutHistorySchema], // actual payouts sent to host
     privacySettings: privacySettingsSchema,
+    businessVerified: { type: Boolean, default: false },
+    businessVerification: businessVerificationSchema,
     dob: dobSchema,
     reviews: [reviewSchema],
     isHost: { type: Boolean, default: false },

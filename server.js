@@ -29,10 +29,13 @@ const setupEscrowRelease = require("./utils/releaseEscrow");
 const cron = require("node-cron");
 const markCompletedBookings = require("./jobs/markCompletedBookings");
 const isSuspicious = require("./utils/suspicionEngine");
+const { connectRedis } = require("./utils/redisClient");
 
 dotenv.config({ path: "./config.env" });
 
 const app = express();
+
+connectRedis().catch(console.error);
 
 app.set("trust proxy", true);
 const server = http.createServer(app);

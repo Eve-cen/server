@@ -2,7 +2,49 @@
 const express = require("express");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const auth = require("../middleware/auth");
+const User = require("../models/User");
 const router = express.Router();
+
+// POST /api/verification/business - Submit business details
+router.post("/business", auth, async (req, res) => {
+  const { companyName, websiteURL, vat } = req.body;
+
+  try {
+    if (!companyName || !websiteURL || !vat) {
+      return res.status(400).json({ error: "All fields are required" });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    user.businessVerification = {
+      companyName,
+      websiteURL,
+      vat,
+      verifiedAt: new Date(),
+    };
+    user.businessVerified = true; // Set to true; in production, set to false pending admin review
+
+    await user.save();
+    res.json({ success: true, message: "Business verification submitted" });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/verification/business - Get user's business verification status
+router.get("/business", auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select(
+      "businessVerified businessVerification"
+    );
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+module.exports = router;
 
 // Create Identity Verification Session
 router.post("/create-verification-session", auth, async (req, res) => {
