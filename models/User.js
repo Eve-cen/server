@@ -226,6 +226,11 @@ const businessVerificationSchema = new mongoose.Schema({
   websiteURL: { type: String },
   vat: { type: String },
   verifiedAt: { type: Date },
+  status: {
+    type: String,
+    enum: ["under_review", "verified", "not_submitted"],
+    default: "under_review",
+  },
 });
 
 // Main User schema
