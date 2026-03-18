@@ -139,6 +139,19 @@ router.post("/", auth, async (req, res) => {
     await booking.save();
     await booking.populate(["guest", "property", "host"]);
 
+    if (booking.status === "confirmed") {
+      await Property.findByIdAndUpdate(propertyId, {
+        $push: {
+          blockedDates: {
+            start: checkInDate,
+            end: checkOutDate,
+            reason: "booked",
+            bookingId: booking._id,
+          },
+        },
+      });
+    }
+
     const user = await User.findById(req.user.id);
     const displayName = user.displayName || user.firstName || "there";
 
@@ -279,12 +292,14 @@ router.put("/:id/status", auth, async (req, res) => {
       return res.status(400).json({ error: "Invalid status" });
     }
 
+    const previousStatus = booking.status;
     booking.status = status;
     await booking.save();
 
-    // Auto-approve future bookings after 5
+    const property = await Property.findById(booking.property);
+
     if (status === "confirmed") {
-      const property = await Property.findById(booking.property);
+      // Auto-approve tracking
       if (
         property.bookingSettings.approveFirstFive &&
         property.firstFiveApproved < 5
@@ -292,6 +307,31 @@ router.put("/:id/status", auth, async (req, res) => {
         property.firstFiveApproved += 1;
         await property.save();
       }
+
+      // Block dates — only if not already blocked by this booking
+      const alreadyBlocked = property.blockedDates.some(
+        (b) => b.bookingId?.toString() === booking._id.toString()
+      );
+
+      if (!alreadyBlocked) {
+        await Property.findByIdAndUpdate(booking.property, {
+          $push: {
+            blockedDates: {
+              start: booking.checkIn,
+              end: booking.checkOut,
+              reason: "booked",
+              bookingId: booking._id,
+            },
+          },
+        });
+      }
+    }
+
+    // If moving away from confirmed (e.g. declined after confirmed), unblock
+    if (status === "declined" && previousStatus === "confirmed") {
+      await Property.findByIdAndUpdate(booking.property, {
+        $pull: { blockedDates: { bookingId: booking._id } },
+      });
     }
 
     await booking.populate(["guest", "property"]);
@@ -302,7 +342,179 @@ router.put("/:id/status", auth, async (req, res) => {
 
     res.json(booking);
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: "Server error" });
+  }
+});
+
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+
+// ─── Refund policy helper ─────────────────────────────────────────────────────
+// Returns { refundPercent: 0-100, reason: string }
+function getRefundPolicy(policy, checkIn) {
+  const now = new Date();
+  const checkInDate = new Date(checkIn);
+  const hoursUntilCheckIn = (checkInDate - now) / (1000 * 60 * 60);
+
+  switch (policy) {
+    case "flexible":
+      // Full refund if cancelled more than 24hrs before check-in
+      if (hoursUntilCheckIn > 24)
+        return {
+          refundPercent: 100,
+          reason: "Cancelled within flexible policy (>24hrs)",
+        };
+      return {
+        refundPercent: 0,
+        reason: "Cancelled too close to check-in (flexible policy)",
+      };
+
+    case "moderate":
+      // Full refund if cancelled more than 5 days before check-in
+      if (hoursUntilCheckIn > 5 * 24)
+        return {
+          refundPercent: 100,
+          reason: "Cancelled within moderate policy (>5 days)",
+        };
+      return {
+        refundPercent: 0,
+        reason: "Cancelled too close to check-in (moderate policy)",
+      };
+
+    case "strict":
+      // 50% refund if cancelled more than 7 days before, none after
+      if (hoursUntilCheckIn > 7 * 24)
+        return {
+          refundPercent: 50,
+          reason: "Cancelled within strict policy (>7 days) — 50% refund",
+        };
+      return {
+        refundPercent: 0,
+        reason: "Cancelled too close to check-in (strict policy)",
+      };
+
+    case "non-refundable":
+      return { refundPercent: 0, reason: "Non-refundable booking" };
+
+    default:
+      return { refundPercent: 0, reason: "No refund policy set" };
+  }
+}
+
+// ─── Cancel booking ───────────────────────────────────────────────────────────
+// DELETE /bookings/:id/cancel
+// Accessible by: guest (own booking) or host (their property's booking)
+router.delete("/:id/cancel", auth, async (req, res) => {
+  try {
+    const booking = await Booking.findById(req.params.id).populate("property");
+
+    if (!booking) {
+      return res.status(404).json({ error: "Booking not found" });
+    }
+
+    const isGuest = booking.guest.toString() === req.user.id;
+    const isHost = booking.host.toString() === req.user.id;
+
+    if (!isGuest && !isHost) {
+      return res
+        .status(403)
+        .json({ error: "Not authorised to cancel this booking" });
+    }
+
+    if (["cancelled", "completed"].includes(booking.status)) {
+      return res
+        .status(400)
+        .json({ error: `Booking is already ${booking.status}` });
+    }
+
+    const cancelledBy = isHost ? "host" : "guest";
+
+    // ── Refund logic ──────────────────────────────────────────────────────────
+    let refundAmount = 0;
+    let refundPercent = 0;
+    let refundReason = "No payment on record";
+    let stripeRefund = null;
+
+    const refundPolicy =
+      booking.property?.bookingSettings?.refundPolicy || "non-refundable";
+    const { refundPercent: pct, reason } = getRefundPolicy(
+      refundPolicy,
+      booking.checkIn
+    );
+
+    refundPercent = pct;
+    refundReason = reason;
+
+    // Hosts who cancel always give a full refund to the guest
+    if (isHost && pct < 100) {
+      refundPercent = 100;
+      refundReason = "Host-initiated cancellation — full refund issued";
+    }
+
+    if (
+      booking.paymentIntentId &&
+      booking.totalPrice > 0 &&
+      refundPercent > 0
+    ) {
+      refundAmount = Math.round(
+        ((booking.totalPrice * refundPercent) / 100) * 100
+      ); // in cents
+
+      try {
+        stripeRefund = await stripe.refunds.create({
+          payment_intent: booking.paymentIntentId,
+          amount: refundAmount, // partial or full
+          reason: "requested_by_customer",
+          metadata: {
+            bookingId: booking._id.toString(),
+            cancelledBy,
+            policy: refundPolicy,
+          },
+        });
+      } catch (stripeErr) {
+        console.error("Stripe refund failed:", stripeErr.message);
+        return res.status(502).json({
+          error: "Cancellation recorded but Stripe refund failed",
+          detail: stripeErr.message,
+        });
+      }
+    }
+
+    // ── Update booking ────────────────────────────────────────────────────────
+    booking.status = "cancelled";
+    booking.cancelledBy = cancelledBy;
+    booking.cancelledAt = new Date();
+    booking.refund = {
+      percent: refundPercent,
+      amount: refundAmount / 100, // back to £/$/€
+      reason: refundReason,
+      stripeRefundId: stripeRefund?.id || null,
+      processedAt: stripeRefund ? new Date() : null,
+    };
+    await booking.save();
+
+    // ── Unblock dates on property ─────────────────────────────────────────────
+    await Property.findByIdAndUpdate(booking.property._id, {
+      $pull: { blockedDates: { bookingId: booking._id } },
+    });
+
+    // ── Notify the other party via socket ─────────────────────────────────────
+    const notifyUserId = isHost ? booking.guest : booking.host;
+    req.app.get("io").to(`guest_${notifyUserId}`).emit("bookingCancelled", {
+      bookingId: booking._id,
+      cancelledBy,
+      refundAmount: booking.refund.amount,
+      refundPercent,
+    });
+
+    return res.json({
+      message: "Booking cancelled successfully",
+      booking,
+      refund: booking.refund,
+    });
+  } catch (err) {
+    console.error("Cancellation error:", err);
+    return res.status(500).json({ error: "Failed to cancel booking" });
   }
 });
 

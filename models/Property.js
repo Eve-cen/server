@@ -95,12 +95,55 @@ const propertySchema = new mongoose.Schema(
     bookingSettings: {
       approveFirstFive: { type: Boolean, default: true },
       instantBook: { type: Boolean, default: false },
+      approveAllBookings: { type: Boolean, default: false },
     },
     host: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     category: { type: mongoose.Schema.Types.ObjectId, ref: "Category" },
     rating: { type: Number, default: 0 },
     reviewNumber: { type: Number, default: 0 },
     reviews: [{ type: mongoose.Schema.Types.ObjectId, ref: "Review" }],
+    refundPolicy: {
+      type: String,
+      enum: ["flexible", "moderate", "strict", "non-refundable"],
+      default: "moderate",
+    },
+    availability: {
+      type: String,
+      enum: ["all", "weekdays", "weekends", "custom"],
+      default: "all",
+    },
+    customAvailability: {
+      days: [
+        {
+          type: String,
+          enum: [
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday",
+          ],
+        },
+      ],
+      startTime: String, // "09:00"
+      endTime: String, // "22:00"
+      minBookingHours: { type: Number, default: 2 },
+    },
+    blockedDates: [
+      {
+        start: { type: Date, required: true },
+        end: { type: Date, required: true },
+        reason: {
+          type: String,
+          enum: ["booked", "maintenance", "personal", "external"],
+        },
+        bookingId: { type: mongoose.Schema.Types.ObjectId, ref: "Booking" },
+        externalEventId: String, // for iCal sync
+      },
+    ],
+    icalUrl: { type: String }, // External calendar link (Google, Outlook, etc.)
   },
   { timestamps: true }
 );

@@ -63,10 +63,8 @@ router.post("/save", auth, upload.array("images", 10), async (req, res) => {
       newImages = await Promise.all(
         req.files.map(async (file) => {
           const result = await uploadToR2(file.path, file.filename);
-          return {
-            url: result.location,
-            filename: file.filename,
-          };
+          await fs.promises.unlink(file.path).catch(() => {}); // ← cleanup
+          return { url: result.location, filename: file.filename };
         })
       );
     }

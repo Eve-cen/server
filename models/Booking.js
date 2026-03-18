@@ -20,12 +20,22 @@ const bookingSchema = new mongoose.Schema({
   bookingSettings: {
     approveFirstFive: { type: Boolean, default: true },
     instantBook: { type: Boolean, default: false },
+    approveAllBookings: { type: Boolean, default: false },
   },
   extras: [{ name: String, price: Number }],
   discountApplied: { type: Number, default: 0 },
   isPaid: { type: Boolean, default: false },
   stripeSessionId: { type: String },
   paymentIntentId: { type: String },
+  cancelledBy: { type: String, enum: ["guest", "host"] },
+  cancelledAt: { type: Date },
+  refund: {
+    percent: Number,
+    amount: Number,
+    reason: String,
+    stripeRefundId: String,
+    processedAt: Date,
+  },
   escrowReleaseDate: { type: Date }, // when funds should be released
   escrowReleased: { type: Boolean, default: false },
   platformFee: { type: Number, default: 0 },

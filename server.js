@@ -7,6 +7,7 @@ const authRoutes = require("./routes/auth");
 const propertyRoutes = require("./routes/properties");
 const categoryRoutes = require("./routes/categories");
 const bookingRoutes = require("./routes/bookings");
+const availabiltyRoutes = require("./routes/availability");
 const reviewsRoutes = require("./routes/reviews");
 const settingsRoutes = require("./routes/settings");
 const profileRoutes = require("./routes/profile");
@@ -156,6 +157,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/properties", propertyRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/bookings", bookingRoutes);
+app.use("/api/availability", availabiltyRoutes);
 app.use("/api/reviews", reviewsRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/profile", profileRoutes); // New
