@@ -97,6 +97,7 @@ const propertySchema = new mongoose.Schema(
       instantBook: { type: Boolean, default: false },
       approveAllBookings: { type: Boolean, default: false },
     },
+    isActive: { type: Boolean, default: true },
     host: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     category: { type: mongoose.Schema.Types.ObjectId, ref: "Category" },
     rating: { type: Number, default: 0 },
