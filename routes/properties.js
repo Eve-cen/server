@@ -1041,7 +1041,7 @@ router.post(
         blockedDates: blockedDates.map((d) => ({
           start: new Date(d.start),
           end: new Date(d.end),
-          reason: d.reason || "blocked",
+          reason: d.reason || "personal",
         })),
       });
 
