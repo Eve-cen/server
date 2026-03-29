@@ -964,32 +964,13 @@ router.post(
         "payoutMethods",
         "dob",
       ];
-
       const missingFields = requiredFields.filter(
         (field) => !user[field] || user[field].toString().trim() === ""
       );
-
       if (missingFields.length > 0) {
-        // Optional: make field names more user-friendly
-        const fieldLabels = {
-          lastName: "Last Name",
-          firstName: "First Name",
-          phoneNumber: "Phone Number",
-          address: "Address",
-          profileImage: "Profile Image",
-          payoutMethods: "Payout Method",
-          dob: "Date of Birth",
-        };
-
-        const readableFields = missingFields.map(
-          (field) => fieldLabels[field] || field
-        );
-
         return res.status(403).json({
           success: false,
-          message: `Please complete your profile by adding: ${readableFields.join(
-            ", "
-          )}`,
+          message: "Please complete your profile before creating a property",
           missingFields,
         });
       }
@@ -1041,7 +1022,7 @@ router.post(
         blockedDates: blockedDates.map((d) => ({
           start: new Date(d.start),
           end: new Date(d.end),
-          reason: d.reason || "personal",
+          reason: d.reason || "blocked",
         })),
       });
 
