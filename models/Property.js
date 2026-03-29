@@ -1,9 +1,8 @@
 const mongoose = require("mongoose");
 
-// In your Property model file
 const propertySchema = new mongoose.Schema(
   {
-    title: { type: String, required: true },
+    title: { type: String, required: true, trim: true },
     description: { type: String, required: true },
     location: {
       address: { type: String, required: true },
@@ -11,8 +10,8 @@ const propertySchema = new mongoose.Schema(
       country: { type: String, required: true },
     },
     coordinates: {
-      latitude: { type: Number },
-      longitude: { type: Number },
+      latitude: Number,
+      longitude: Number,
     },
     images: [{ type: String }],
     coverImage: { type: String },
@@ -44,46 +43,19 @@ const propertySchema = new mongoose.Schema(
       mirror: { type: Boolean, default: false },
       bathroom: { type: Number, default: 1 },
     },
-
-    extras: [
-      {
-        name: String,
-        price: Number,
-      },
-    ],
+    extras: [{ name: String, price: Number }],
     pricing: {
-      pricingType: {
-        type: String,
-        enum: ["DAILY", "HOURLY"],
-        required: true,
-        default: "DAILY",
-      },
-
-      // DAILY pricing
+      pricingType: { type: String, enum: ["DAILY", "HOURLY"], required: true, default: "DAILY" },
       weekdayPrice: {
-        type: Number,
-        min: 0,
-        required: function () {
-          return this.pricing.pricingType === "DAILY";
-        },
+        type: Number, min: 0,
+        required: function () { return this.pricing?.pricingType === "DAILY"; },
       },
-
-      // HOURLY pricing
       hourlyPrice: {
-        type: Number,
-        min: 0,
-        required: function () {
-          return this.pricing.pricingType === "HOURLY";
-        },
+        type: Number, min: 0,
+        required: function () { return this.pricing?.pricingType === "HOURLY"; },
       },
-
-      minHours: {
-        type: Number,
-        default: 1,
-      },
-
+      minHours: { type: Number, default: 1 },
       preTaxPrice: Number,
-
       discounts: {
         newListing: { type: Boolean, default: false },
         lastMinute: { type: Boolean, default: false },
@@ -91,12 +63,17 @@ const propertySchema = new mongoose.Schema(
         monthly: { type: Boolean, default: false },
       },
     },
-
     bookingSettings: {
       approveFirstFive: { type: Boolean, default: true },
       instantBook: { type: Boolean, default: false },
       approveAllBookings: { type: Boolean, default: false },
+      refundPolicy: {
+        type: String,
+        enum: ["flexible", "moderate", "strict", "non-refundable"],
+        default: "moderate",
+      },
     },
+    firstFiveApproved: { type: Number, default: 0 },
     isActive: { type: Boolean, default: true },
     host: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     category: { type: mongoose.Schema.Types.ObjectId, ref: "Category" },
@@ -108,54 +85,33 @@ const propertySchema = new mongoose.Schema(
       enum: ["flexible", "moderate", "strict", "non-refundable"],
       default: "moderate",
     },
-    availability: {
-      type: String,
-      enum: ["all", "weekdays", "weekends", "custom"],
-      default: "all",
-    },
+    availability: { type: String, enum: ["all", "weekdays", "weekends", "custom"], default: "all" },
     customAvailability: {
-      days: [
-        {
-          type: String,
-          enum: [
-            "monday",
-            "tuesday",
-            "wednesday",
-            "thursday",
-            "friday",
-            "saturday",
-            "sunday",
-          ],
-        },
-      ],
-      startTime: String, // "09:00"
-      endTime: String, // "22:00"
+      days: [{ type: String, enum: ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] }],
+      startTime: String,
+      endTime: String,
       minBookingHours: { type: Number, default: 2 },
     },
-    blockedDates: [
-      {
-        start: { type: Date, required: true },
-        end: { type: Date, required: true },
-        reason: {
-          type: String,
-          enum: ["booked", "maintenance", "personal", "external"],
-        },
-        bookingId: { type: mongoose.Schema.Types.ObjectId, ref: "Booking" },
-        externalEventId: String, // for iCal sync
-      },
-    ],
-    icalUrl: { type: String }, // External calendar link (Google, Outlook, etc.)
+    blockedDates: [{
+      start: { type: Date, required: true },
+      end: { type: Date, required: true },
+      reason: { type: String, enum: ["booked", "maintenance", "personal", "external"] },
+      bookingId: { type: mongoose.Schema.Types.ObjectId, ref: "Booking" },
+      externalEventId: String,
+    }],
+    icalUrl: String,
   },
   { timestamps: true }
 );
 
-propertySchema.pre("save", function (next) {
-  if (this.pricing.useHourly && !this.pricing.hourlyPrice) {
-    return next(
-      new Error("Hourly price is required when hourly pricing is enabled")
-    );
-  }
-  next();
-});
+// ── Indexes ────────────────────────────────────────────────────────────────────
+propertySchema.index({ host: 1 });
+propertySchema.index({ category: 1 });
+propertySchema.index({ isActive: 1 });
+propertySchema.index({ "location.city": 1 });
+propertySchema.index({ "location.country": 1 });
+propertySchema.index({ "coordinates.latitude": 1, "coordinates.longitude": 1 });
+propertySchema.index({ rating: -1 });
+propertySchema.index({ createdAt: -1 });
 
 module.exports = mongoose.model("Property", propertySchema);

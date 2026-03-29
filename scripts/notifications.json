@@ -1,0 +1,88 @@
+[
+  {
+    "user": "699b9d3814b5e9dd2c6d3133",
+    "type": "booking_request",
+    "title": "New Booking Request",
+    "body": "John Doe has requested to book your property from 2026-04-01 to 2026-04-05.",
+    "read": false,
+    "link": "/bookings/699ba4ff66d9fce548129ab8",
+    "meta": {
+      "bookingId": "699ba4ff66d9fce548129ab8",
+      "propertyId": "699ba14014b5e9dd2c6d3221"
+    },
+    "createdAt": "2026-03-25T10:00:00.000Z",
+    "updatedAt": "2026-03-25T10:00:00.000Z"
+  },
+  {
+    "user": "699b9d3814b5e9dd2c6d3133",
+    "type": "booking_confirmed",
+    "title": "Booking Confirmed",
+    "body": "Your booking for Ocean View Villa has been confirmed.",
+    "read": false,
+    "link": "/bookings/699ba4ff66d9fce548129ab8",
+    "meta": {
+      "bookingId": "699ba4ff66d9fce548129ab8",
+      "propertyId": "699ba14014b5e9dd2c6d3221"
+    },
+    "createdAt": "2026-03-24T08:30:00.000Z",
+    "updatedAt": "2026-03-24T08:30:00.000Z"
+  },
+  {
+    "user": "699b9d3814b5e9dd2c6d3133",
+    "type": "new_message",
+    "title": "New Message from Alice",
+    "body": "Alice sent you a message regarding your property listing.",
+    "read": true,
+    "link": "/messages/699f9d9e3feecc60d99f267d",
+    "meta": {
+      "conversationId": "699f9d9e3feecc60d99f267d",
+      "senderId": "699b9d3814b5e9dd2c6d3133"
+    },
+    "createdAt": "2026-03-23T14:45:00.000Z",
+    "updatedAt": "2026-03-23T14:45:00.000Z"
+  },
+  {
+    "user": "699b9d3814b5e9dd2c6d3133",
+    "type": "payment_received",
+    "title": "Payment Received",
+    "body": "You received $500 for your booking Ocean View Villa.",
+    "read": false,
+    "link": "/payments/699ba14014b5e9dd2c6d3221",
+    "meta": { "bookingId": "699ba4ff66d9fce548129ab8", "amount": 500 },
+    "createdAt": "2026-03-22T09:15:00.000Z",
+    "updatedAt": "2026-03-22T09:15:00.000Z"
+  },
+  {
+    "user": "699b9d3814b5e9dd2c6d3133",
+    "type": "admin_message",
+    "title": "Policy Update",
+    "body": "Please review the updated terms and conditions for hosting.",
+    "read": false,
+    "link": "/admin/policy",
+    "meta": {},
+    "createdAt": "2026-03-21T12:00:00.000Z",
+    "updatedAt": "2026-03-21T12:00:00.000Z"
+  },
+  {
+    "user": "699b9d3814b5e9dd2c6d3133",
+    "type": "verification_update",
+    "title": "Verification Approved",
+    "body": "Your identity verification has been approved successfully.",
+    "read": true,
+    "link": "/account/verification",
+    "meta": {},
+    "createdAt": "2026-03-20T16:20:00.000Z",
+    "updatedAt": "2026-03-20T16:20:00.000Z"
+  },
+  {
+    "user": "699b9d3814b5e9dd2c6d3133",
+    "type": "booking_cancelled",
+    "title": "Booking Cancelled",
+    "body": "The booking by Jane Smith has been cancelled.",
+    "read": false,
+    "link": "/bookings/67890",
+    "meta": { "bookingId": "67890", "propertyId": "54321" },
+    "createdAt": "2026-03-19T11:10:00.000Z",
+    "updatedAt": "2026-03-19T11:10:00.000Z"
+  }
+]
