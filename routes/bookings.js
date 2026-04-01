@@ -327,6 +327,18 @@ router.get("/", auth, async (req, res) => {
   }
 });
 
+router.get("/past", auth, async (req, res) => {
+  // const bookings = await Booking.find({
+  //   guest: req.user._id,
+  //   checkOut: { $gt: new Date() },
+  // })
+  const bookings = await Booking.find({ guest: req.user._id })
+    .populate("property", "title images coverImage location pricing")
+    .sort({ checkOut: -1 });
+
+  res.json(bookings);
+});
+
 router.get("/:id", auth, async (req, res) => {
   try {
     const booking = await Booking.findById(req.params.id);
@@ -585,18 +597,6 @@ router.delete("/:id/cancel", auth, async (req, res) => {
     console.error("Cancellation error:", err);
     return res.status(500).json({ error: "Failed to cancel booking" });
   }
-});
-
-router.get("/past", auth, async (req, res) => {
-  // const bookings = await Booking.find({
-  //   guest: req.user._id,
-  //   checkOut: { $gt: new Date() },
-  // })
-  const bookings = await Booking.find({ guest: req.user.id })
-    .populate("property", "title images coverImage location pricing")
-    .sort({ checkOut: -1 });
-
-  res.json(bookings);
 });
 
 module.exports = router;
