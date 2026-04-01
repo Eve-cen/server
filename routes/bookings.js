@@ -1,6 +1,7 @@
 const express = require("express");
 const Booking = require("../models/Booking");
 const Property = require("../models/Property");
+const createNotification = require("../utils/notify");
 const auth = require("../middleware/auth");
 const sendEmail = require("../utils/sendEmail");
 const User = require("../models/User");
@@ -51,6 +52,45 @@ router.post("/", auth, async (req, res) => {
 
     if (conflict) {
       return res.status(409).json({ error: "These dates are already booked" });
+    }
+
+    // 4. Check host-blocked dates
+    const isBlocked = property.blockedDates?.some(({ start, end }) => {
+      const blockStart = new Date(start);
+      const blockEnd = new Date(end);
+      return checkInDate < blockEnd && checkOutDate > blockStart;
+    });
+
+    if (isBlocked) {
+      return res.status(409).json({ error: "These dates are unavailable" });
+    }
+
+    // 5. Check availability setting (weekdays / weekends / custom)
+    if (property.availability && property.availability !== "all") {
+      const days = [];
+      const cursor = new Date(checkInDate);
+      while (cursor < checkOutDate) {
+        days.push(cursor.getDay()); // 0 = Sun, 6 = Sat
+        cursor.setDate(cursor.getDate() + 1);
+      }
+
+      if (property.availability === "weekdays") {
+        const hasWeekend = days.some((d) => d === 0 || d === 6);
+        if (hasWeekend) {
+          return res
+            .status(409)
+            .json({ error: "This space is only available on weekdays" });
+        }
+      }
+
+      if (property.availability === "weekends") {
+        const hasWeekday = days.some((d) => d >= 1 && d <= 5);
+        if (hasWeekday) {
+          return res
+            .status(409)
+            .json({ error: "This space is only available on weekends" });
+        }
+      }
     }
 
     // 4. Calculate total price
@@ -154,6 +194,15 @@ router.post("/", auth, async (req, res) => {
 
     const user = await User.findById(req.user.id);
     const displayName = user.displayName || user.firstName || "there";
+
+    await createNotification(req.app.get("io"), {
+      userId: property.host._id,
+      type: "booking_request",
+      title: "New Booking",
+      body: `${displayName} booked ${property.title}`,
+      link: `/bookings/${booking._id}`,
+      meta: { bookingId: booking._id },
+    });
 
     sendEmail({
       to: user.email,
@@ -278,9 +327,25 @@ router.get("/", auth, async (req, res) => {
   }
 });
 
+router.get("/:id", auth, async (req, res) => {
+  try {
+    const booking = await Booking.findById(req.params.id);
+
+    if (!booking) {
+      return res.status(404).json({ message: "Booking not found" });
+    }
+
+    res.json(booking);
+  } catch (err) {
+    console.error("Fetch booking error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 // PUT: Host approve/decline
 router.put("/:id/status", auth, async (req, res) => {
-  const { status } = req.body; // 'confirmed' or 'declined'
+  const { status } = req.body;
+
   try {
     const booking = await Booking.findOne({
       _id: req.params.id,
@@ -292,42 +357,44 @@ router.put("/:id/status", auth, async (req, res) => {
       return res.status(400).json({ error: "Invalid status" });
     }
 
+    const property = await Property.findById(booking.property);
+    if (!property) return res.status(404).json({ error: "Property not found" });
+
     const previousStatus = booking.status;
     booking.status = status;
     await booking.save();
 
-    const property = await Property.findById(booking.property);
-
     if (status === "confirmed") {
-      // Auto-approve tracking
-      if (
-        property.bookingSettings.approveFirstFive &&
-        property.firstFiveApproved < 5
-      ) {
-        property.firstFiveApproved += 1;
-        await property.save();
-      }
+      const updateOps = {};
 
-      // Block dates — only if not already blocked by this booking
       const alreadyBlocked = property.blockedDates.some(
         (b) => b.bookingId?.toString() === booking._id.toString()
       );
 
       if (!alreadyBlocked) {
-        await Property.findByIdAndUpdate(booking.property, {
-          $push: {
-            blockedDates: {
-              start: booking.checkIn,
-              end: booking.checkOut,
-              reason: "booked",
-              bookingId: booking._id,
-            },
+        updateOps.$push = {
+          blockedDates: {
+            start: booking.checkIn,
+            end: booking.checkOut,
+            reason: "booked",
+            bookingId: booking._id,
           },
-        });
+        };
+      }
+
+      if (
+        property.bookingSettings.approveFirstFive &&
+        property.firstFiveApproved < 5
+      ) {
+        updateOps.$inc = { firstFiveApproved: 1 };
+      }
+
+      if (Object.keys(updateOps).length) {
+        await Property.findByIdAndUpdate(booking.property, updateOps);
       }
     }
 
-    // If moving away from confirmed (e.g. declined after confirmed), unblock
+    // Only confirmed bookings block dates, so only unblock on confirmed → declined
     if (status === "declined" && previousStatus === "confirmed") {
       await Property.findByIdAndUpdate(booking.property, {
         $pull: { blockedDates: { bookingId: booking._id } },
@@ -335,10 +402,12 @@ router.put("/:id/status", auth, async (req, res) => {
     }
 
     await booking.populate(["guest", "property"]);
-    req.app
-      .get("io")
-      .to(`guest_${booking.guest._id}`)
-      .emit("bookingUpdate", booking);
+
+    const io = req.app.get("io");
+    const eventName =
+      status === "confirmed" ? "bookingConfirmed" : "bookingDeclined";
+    io.to(`guest_${booking.guest._id}`).emit(eventName, booking);
+    io.to(`host_${req.user.id}`).emit(eventName, booking);
 
     res.json(booking);
   } catch (err) {

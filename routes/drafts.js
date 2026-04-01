@@ -134,7 +134,7 @@ router.get("/", auth, async (req, res) => {
     const draft = await Draft.findOne({ user: userId }).populate("category");
 
     if (!draft) {
-      return res.status(404).json({
+      return res.status(200).json({
         success: false,
         message: "No draft found",
       });

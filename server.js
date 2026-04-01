@@ -18,6 +18,7 @@ const paymentsWebhook = require("./routes/paymentsWebhook");
 const paymentRoutes = require("./routes/payments");
 const payoutRoutes = require("./routes/payouts");
 const geocodeRoutes = require("./routes/geocode");
+const notificationRoutes = require("./routes/notifications");
 const verificationRoutes = require("./routes/verification");
 const draftRoutes = require("./routes/drafts");
 const chatRoutes = require("./routes/chat");
@@ -38,7 +39,7 @@ const app = express();
 
 connectRedis().catch(console.error);
 
-app.set("trust proxy", true);
+app.set("trust proxy", 1);
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
@@ -72,6 +73,8 @@ io.use((socket, next) => {
 
 io.on("connection", (socket) => {
   console.log("User connected:", socket.user.id);
+
+  socket.join(`user_${socket.user.id}`);
 
   socket.on("joinConversation", (conversationId) => {
     socket.join(conversationId);
@@ -168,6 +171,7 @@ app.use("/api/hosts", hostRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/payouts", payoutRoutes);
 app.use("/api/geocode", geocodeRoutes);
+app.use("/api/notifications", notificationRoutes);
 app.use("/api/verification", verificationRoutes);
 app.use("/api/drafts", draftRoutes);
 app.use("/uploads", express.static("uploads"));

@@ -4,15 +4,16 @@ const auth = require("../middleware/auth");
 const router = express.Router();
 
 // GET /api/notifications — paginated
+const mongoose = require("mongoose");
+
 router.get("/", auth, async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(50, parseInt(req.query.limit) || 20);
     const skip = (page - 1) * limit;
 
-    // Aggregate notifications, total, and unreadCount in a single query
     const notificationsData = await Notification.aggregate([
-      { $match: { user: req.user.id } },
+      { $match: { user: new mongoose.Types.ObjectId(req.user.id) } },
       { $sort: { createdAt: -1 } },
       {
         $facet: {
