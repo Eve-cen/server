@@ -135,19 +135,43 @@ router.post(
       }
 
       // ── Category / Subcategory validation ──
-      if (category && category.trim()) {
+      if (category?.trim()) {
         const categoryDoc = await Category.findById(category);
         if (!categoryDoc) {
           cleanupTempFiles(req.files);
           return res.status(404).json({ error: "Category not found" });
         }
+
         if (subcategory && subcategory.length > 0) {
-          const parsedSubcategories = JSON.parse(subcategory);
-          const allExist = parsedSubcategories.every((subId) =>
-            categoryDoc.subcategory?.some(
-              (sub) => sub._id.toString() === subId.trim()
-            )
+          let parsedSubcategories;
+
+          try {
+            parsedSubcategories = JSON.parse(subcategory);
+          } catch {
+            cleanupTempFiles(req.files);
+            return res
+              .status(400)
+              .json({ error: "Invalid subcategory format" });
+          }
+
+          if (
+            !Array.isArray(parsedSubcategories) ||
+            parsedSubcategories.length === 0
+          ) {
+            cleanupTempFiles(req.files);
+            return res
+              .status(400)
+              .json({ error: "Subcategories must be a non-empty array" });
+          }
+
+          const validSubcategoryIds = new Set(
+            categoryDoc.subcategory?.map((sub) => sub._id.toString()) ?? []
           );
+
+          const allExist = parsedSubcategories.every((subId) =>
+            validSubcategoryIds.has(subId.trim())
+          );
+
           if (!allExist) {
             cleanupTempFiles(req.files);
             return res
