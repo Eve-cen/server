@@ -87,28 +87,32 @@ const deleteFilesFromR2 = async (imageUrls) => {
 // ✅ Create a property
 router.post(
   "/",
-  auth, // FIX: auth runs first — reject unauthenticated before any other work
+  auth, // reject unauthenticated first
   validatePricing,
   upload.array("images", 45),
   async (req, res) => {
     try {
+      // ── Parse JSON safely ──
       let location,
         coordinates,
         features,
         extras,
         pricing,
         bookingSettings,
-        blockedDates;
+        blockedDates,
+        timeBlocks;
+
       try {
         location = JSON.parse(req.body.location);
         coordinates = JSON.parse(req.body.coordinates);
         features = JSON.parse(req.body.features);
         extras = JSON.parse(req.body.extras || "[]");
         pricing = JSON.parse(req.body.pricing);
-        bookingSettings = JSON.parse(req.body.bookingSettings);
+        bookingSettings = JSON.parse(req.body.bookingSettings || "{}");
         blockedDates = req.body.blockedDates
           ? JSON.parse(req.body.blockedDates)
           : [];
+        timeBlocks = req.body.timeBlocks ? JSON.parse(req.body.timeBlocks) : [];
       } catch (parseError) {
         console.error("JSON Parse Error:", parseError);
         cleanupTempFiles(req.files);
@@ -122,6 +126,7 @@ router.post(
       const availability = req.body.availability || "all";
       const host = req.user.id;
 
+      // ── Required fields check ──
       if (!title || !description) {
         cleanupTempFiles(req.files);
         return res.status(400).json({
@@ -129,23 +134,30 @@ router.post(
         });
       }
 
+      // ── Category / Subcategory validation ──
       if (category && category.trim()) {
         const categoryDoc = await Category.findById(category);
         if (!categoryDoc) {
           cleanupTempFiles(req.files);
           return res.status(404).json({ error: "Category not found" });
         }
-        if (subcategory && subcategory.trim()) {
-          const subcategoryExists = categoryDoc.subcategory?.some(
-            (sub) => sub._id.toString() === subcategory.trim()
+        if (subcategory && subcategory.length > 0) {
+          const parsedSubcategories = JSON.parse(subcategory);
+          const allExist = parsedSubcategories.every((subId) =>
+            categoryDoc.subcategory?.some(
+              (sub) => sub._id.toString() === subId.trim()
+            )
           );
-          if (!subcategoryExists) {
+          if (!allExist) {
             cleanupTempFiles(req.files);
-            return res.status(404).json({ error: "Subcategory not found" });
+            return res
+              .status(404)
+              .json({ error: "One or more subcategories not found" });
           }
         }
       }
 
+      // ── User validation ──
       const user = await User.findById(req.user.id);
       if (!user) {
         return res
@@ -159,6 +171,7 @@ router.post(
         });
       }
 
+      // ── Required profile fields ──
       const requiredFields = [
         "lastName",
         "firstName",
@@ -172,13 +185,33 @@ router.post(
         (field) => !user[field] || user[field].toString().trim() === ""
       );
       if (missingFields.length > 0) {
+        const fieldLabels = {
+          lastName: "Last name",
+          firstName: "First name",
+          phoneNumber: "Phone number",
+          address: "Address",
+          profileImage: "Profile image",
+          payoutMethods: "Payout method",
+          dob: "Date of birth",
+        };
+        const readableFields = missingFields.map(
+          (field) => fieldLabels[field] || field
+        );
+        const message =
+          readableFields.length === 1
+            ? `Please provide your ${readableFields[0]} before creating a property`
+            : `Please provide the following fields before creating a property: ${readableFields.join(
+                ", "
+              )}`;
+
         return res.status(403).json({
           success: false,
-          message: "Please complete your profile before creating a property",
+          message,
           missingFields,
         });
       }
 
+      // ── Handle image upload to R2 ──
       let r2ImageUrls = [];
       if (req.files?.length > 0) {
         try {
@@ -192,6 +225,7 @@ router.post(
         }
       }
 
+      // ── Handle draft images ──
       let draftImages = [];
       if (req.body.draftId) {
         const draft = await Draft.findById(req.body.draftId);
@@ -203,10 +237,20 @@ router.post(
       draftImages = draftImages.filter(
         (img) => !removedImages.includes(img.filename)
       );
-
       const allImages = [...draftImages.map((img) => img.url), ...r2ImageUrls];
       const coverImage = allImages.length > 0 ? allImages[0] : null;
 
+      // ── Validate custom availability ──
+      if (
+        availability === "custom" &&
+        (!timeBlocks || timeBlocks.length === 0)
+      ) {
+        return res.status(400).json({
+          message: "Time blocks are required for custom availability",
+        });
+      }
+
+      // ── Save property ──
       const property = new Property({
         title,
         description,
@@ -220,9 +264,9 @@ router.post(
         bookingSettings,
         host,
         category: category && category.trim() ? category : undefined,
-        subcategory:
-          subcategory && subcategory.trim() ? subcategory : undefined,
+        subcategory: subcategory ? JSON.parse(subcategory) : [],
         availability,
+        timeBlocks, // <-- new field stored separately
         blockedDates: blockedDates.map((d) => ({
           start: new Date(d.start),
           end: new Date(d.end),
