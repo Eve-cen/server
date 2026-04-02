@@ -141,44 +141,6 @@ router.post(
           cleanupTempFiles(req.files);
           return res.status(404).json({ error: "Category not found" });
         }
-
-        if (subcategory && subcategory.length > 0) {
-          let parsedSubcategories;
-
-          try {
-            parsedSubcategories = JSON.parse(subcategory);
-          } catch {
-            cleanupTempFiles(req.files);
-            return res
-              .status(400)
-              .json({ error: "Invalid subcategory format" });
-          }
-
-          if (
-            !Array.isArray(parsedSubcategories) ||
-            parsedSubcategories.length === 0
-          ) {
-            cleanupTempFiles(req.files);
-            return res
-              .status(400)
-              .json({ error: "Subcategories must be a non-empty array" });
-          }
-
-          const validSubcategoryIds = new Set(
-            categoryDoc.subcategory?.map((sub) => sub._id.toString()) ?? []
-          );
-
-          const allExist = parsedSubcategories.every((subId) =>
-            validSubcategoryIds.has(subId.trim())
-          );
-
-          if (!allExist) {
-            cleanupTempFiles(req.files);
-            return res
-              .status(404)
-              .json({ error: "One or more subcategories not found" });
-          }
-        }
       }
 
       // ── User validation ──
