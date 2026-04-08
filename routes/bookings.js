@@ -6,17 +6,58 @@ const auth = require("../middleware/auth");
 const sendEmail = require("../utils/sendEmail");
 const User = require("../models/User");
 const router = express.Router();
+const multer = require("multer");
+const fs = require("fs");
+const { randomUUID } = require("crypto");
+const uploadToR2 = require("../utils/uploadService");
 
-// POST: Create booking (guest)router.post("/", auth, async (req, res) => {
-router.post("/", auth, async (req, res) => {
-  const { propertyId, checkIn, checkOut, guests, extras = [] } = req.body;
-  const guestId = req.user.id;
+const pdfStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = "uploads/temp/";
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, uniqueSuffix + "-" + file.originalname);
+  },
+});
 
-  try {
-    // 1. Find active/published property
-    const property = await Property.findOne({
-      _id: propertyId,
-    }).populate("host");
+const uploadPdf = multer({
+  storage: pdfStorage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype !== "application/pdf") {
+      return cb(new Error("Only PDF files are allowed"), false);
+    }
+    cb(null, true);
+  },
+});
+
+router.post(
+  "/",
+  auth,
+  (req, res, next) => {
+    uploadPdf.single("licensePdf")(req, res, (err) => {
+      if (err instanceof multer.MulterError) {
+        return res.status(400).json({ error: `Upload error: ${err.message}` });
+      } else if (err) {
+        return res.status(400).json({ error: err.message });
+      }
+      next();
+    });
+  },
+  async (req, res) => {
+    const extras = JSON.parse(req.body.extras || "[]");
+    const { propertyId, checkIn, checkOut, guests } = req.body;
+    const guestId = req.user.id;
+
+    // 1. Find property
+    const property = await Property.findOne({ _id: propertyId }).populate(
+      "host"
+    );
 
     if (!property) {
       return res
@@ -24,283 +65,281 @@ router.post("/", auth, async (req, res) => {
         .json({ error: "Property not found or unavailable" });
     }
 
-    // 2. Parse and validate dates
-    const checkInDate = new Date(checkIn);
-    const checkOutDate = new Date(checkOut);
+    // ✅ CATEGORY CHECK BEFORE ANY PDF UPLOAD
+    if (req.file && property.category === "Medical Rooms") {
+      // delete uploaded temp file
+      if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
 
-    if (isNaN(checkInDate) || isNaN(checkOutDate)) {
-      return res.status(400).json({ error: "Invalid date format" });
-    }
-
-    if (checkOutDate <= checkInDate) {
-      return res
-        .status(400)
-        .json({ error: "Check-out must be after check-in" });
-    }
-
-    if (checkOutDate < new Date()) {
-      return res.status(400).json({ error: "Cannot book in the past" });
-    }
-
-    // 3. Prevent double booking
-    const conflict = await Booking.findOne({
-      property: propertyId,
-      status: { $in: ["confirmed", "pending"] },
-      checkIn: { $lt: checkOutDate },
-      checkOut: { $gt: checkInDate },
-    });
-
-    if (conflict) {
-      return res.status(409).json({ error: "These dates are already booked" });
-    }
-
-    // 4. Check host-blocked dates
-    const isBlocked = property.blockedDates?.some(({ start, end }) => {
-      const blockStart = new Date(start);
-      const blockEnd = new Date(end);
-      return checkInDate < blockEnd && checkOutDate > blockStart;
-    });
-
-    if (isBlocked) {
-      return res.status(409).json({ error: "These dates are unavailable" });
-    }
-
-    // 5. Check availability setting (weekdays / weekends / custom)
-    if (property.availability && property.availability !== "all") {
-      const days = [];
-      const cursor = new Date(checkInDate);
-      while (cursor < checkOutDate) {
-        days.push(cursor.getDay()); // 0 = Sun, 6 = Sat
-        cursor.setDate(cursor.getDate() + 1);
-      }
-
-      if (property.availability === "weekdays") {
-        const hasWeekend = days.some((d) => d === 0 || d === 6);
-        if (hasWeekend) {
-          return res
-            .status(409)
-            .json({ error: "This space is only available on weekdays" });
-        }
-      }
-
-      if (property.availability === "weekends") {
-        const hasWeekday = days.some((d) => d >= 1 && d <= 5);
-        if (hasWeekday) {
-          return res
-            .status(409)
-            .json({ error: "This space is only available on weekends" });
-        }
-      }
-    }
-
-    // 4. Calculate total price
-    let totalPrice = 0;
-    let totalNights = 0;
-    let totalHours = 0;
-
-    // DAILY: number of nights × weekdayPrice
-    if (property.pricing.pricingType === "DAILY") {
-      const nights = Math.ceil(
-        (checkOutDate - checkInDate) / (1000 * 60 * 60 * 24)
-      );
-      totalNights = Math.max(nights, 1);
-
-      const nightPrice = Number(property.pricing.weekdayPrice) || 0;
-      if (nightPrice <= 0) {
-        return res.status(400).json({ error: "DAILY price not configured" });
-      }
-
-      totalPrice = totalNights * nightPrice;
-    }
-
-    // HOURLY: total hours (even over multiple days) × hourlyPrice
-    else if (property.pricing.pricingType === "HOURLY") {
-      totalHours = (checkOutDate - checkInDate) / (1000 * 60 * 60); // decimal hours
-
-      if (totalHours < 1) {
-        return res.status(400).json({ error: "Minimum 1 hour required" });
-      }
-
-      const hourPrice = Number(property.pricing.hourlyPrice) || 0;
-      if (hourPrice <= 0) {
-        return res.status(400).json({ error: "Hourly price not configured" });
-      }
-
-      // Choose one:
-      totalPrice = totalHours * hourPrice; // exact hours (e.g. 9.5h allowed)
-      // totalPrice = Math.ceil(totalHours) * hourPrice; // round up to full hour
-    } else {
-      return res.status(400).json({ error: "Invalid pricing type" });
-    }
-
-    // 5. Add extras
-    const validExtras = Array.isArray(property.extras) ? property.extras : [];
-    const selectedExtras = validExtras.filter((e) => extras.includes(e.name));
-    const extrasTotal = selectedExtras.reduce(
-      (sum, e) => sum + (Number(e.price) || 0),
-      0
-    );
-    totalPrice += extrasTotal;
-
-    // 6. Apply discounts (optional)
-    let discount = 0;
-    if (property.pricing.pricingType === "DAILY") {
-      if (property.pricing.discounts?.newListing) discount += totalPrice * 0.2;
-      if (totalNights >= 7 && property.pricing.discounts?.weekly)
-        discount += totalPrice * 0.1;
-      if (totalNights >= 30 && property.pricing.discounts?.monthly)
-        discount += totalPrice * 0.2;
-    }
-    totalPrice = Math.round((totalPrice - discount) * 100) / 100;
-
-    // Final safety
-    if (isNaN(totalPrice) || totalPrice < 0) totalPrice = 0;
-
-    // 7. Create booking
-    const booking = new Booking({
-      property: propertyId,
-      guest: guestId,
-      host: property.host._id,
-      checkIn: checkInDate,
-      checkOut: checkOutDate,
-      guests: guests || 1,
-      extras: selectedExtras,
-      totalPrice,
-      discountApplied: Math.round(discount * 100) / 100,
-      totalNights:
-        property.pricing.pricingType === "DAILY" ? totalNights : undefined,
-      totalHours:
-        property.pricing.pricingType === "HOURLY"
-          ? Number(totalHours.toFixed(2))
-          : undefined,
-      status: property.bookingSettings?.instantBook ? "confirmed" : "pending",
-    });
-
-    await booking.save();
-    await booking.populate(["guest", "property", "host"]);
-
-    if (booking.status === "confirmed") {
-      await Property.findByIdAndUpdate(propertyId, {
-        $push: {
-          blockedDates: {
-            start: checkInDate,
-            end: checkOutDate,
-            reason: "booked",
-            bookingId: booking._id,
-          },
-        },
+      return res.status(400).json({
+        error: "License PDF is only allowed for Medical Rooms properties",
       });
     }
 
-    const user = await User.findById(req.user.id);
-    const displayName = user.displayName || user.firstName || "there";
+    // 2. Upload PDF to R2 (ONLY if allowed)
+    let licensePdfUrl = null;
 
-    await createNotification(req.app.get("io"), {
-      userId: property.host._id,
-      type: "booking_request",
-      title: "New Booking",
-      body: `${displayName} booked ${property.title}`,
-      link: `/bookings/${booking._id}`,
-      meta: { bookingId: booking._id },
-    });
-
-    sendEmail({
-      to: user.email,
-      subject: "Your booking is confirmed 🎉",
-      html: `
-    <div style="font-family: 'Manrope', Arial, sans-serif; background-color: #f4f4f7; padding: 20px;">
-  <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
-
-<!-- Header -->
-<div style="background-color: #f0f0f0; padding: 20px; text-align: center;">
-  <img src="https://vencome.netlify.app/logo-blue.png" alt="VenCome" style="max-width: 150px;">
-</div>
-
-<!-- Body -->
-<div style="padding: 30px; color: #333;">
-  <h2 style="color: #305CDE; text-align: center; margin-top: 0;">
-    Booking Confirmed 🎉
-  </h2>
-
-  <p>Hi <strong>${displayName}</strong>,</p>
-
-  <p>
-    Great news! Your booking has been <strong>successfully confirmed</strong>.
-  </p>
-
-  <!-- Booking Summary -->
-  <div style="background-color: #f5f7ff; padding: 20px; margin: 25px 0; border-radius: 8px;">
-    <table width="100%" cellpadding="0" cellspacing="0" style="font-size: 14px;">
-      <tr>
-        <td style="padding: 6px 0; color: #666;">Property</td>
-        <td style="padding: 6px 0; text-align: right; font-weight: 600;">
-          ${property.title || "—"}
-        </td>
-      </tr>
-      <tr>
-        <td style="padding: 6px 0; color: #666;">Location</td>
-        <td style="padding: 6px 0; text-align: right; font-weight: 600;">
-          ${property.location.city || ""}${
-        property.location.country ? `, ${property.location.country}` : ""
+    if (req.file && property.category === "Medical Rooms") {
+      try {
+        const result = await uploadToR2(req.file.path, req.file.filename);
+        licensePdfUrl = result.location;
+      } catch (uploadErr) {
+        if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        return res.status(500).json({ error: "Failed to upload license PDF" });
       }
-        </td>
-      </tr>
-      <tr>
-        <td style="padding: 6px 0; color: #666;">Check-in</td>
-        <td style="padding: 6px 0; text-align: right; font-weight: 600;">
-          ${booking.checkIn.toLocaleDateString()}
-        </td>
-      </tr>
-      <tr>
-        <td style="padding: 6px 0; color: #666;">Check-out</td>
-        <td style="padding: 6px 0; text-align: right; font-weight: 600;">
-          ${booking.checkOut.toLocaleDateString()}
-        </td>
-      </tr>
-      <tr>
-        <td style="padding: 6px 0; color: #666;">Guests</td>
-        <td style="padding: 6px 0; text-align: right; font-weight: 600;">
-          ${booking.guests}
-        </td>
-      </tr>
-      <tr>
-        <td style="padding: 6px 0; color: #666;">Total to be paid</td>
-        <td style="padding: 6px 0; text-align: right; font-weight: 600;">
-          ${booking.totalPrice}
-        </td>
-      </tr>
-    </table>
-  </div>
+    }
 
-  <p>
-    The host has been notified of your booking and may contact you with additional details before your stay.
-  </p>
+    try {
+      // 1. Find property
+      const property = await Property.findOne({ _id: propertyId }).populate(
+        "host"
+      );
+      if (!property) {
+        return res
+          .status(404)
+          .json({ error: "Property not found or unavailable" });
+      }
 
-  <p>
-    You can pay for, view or manage your booking anytime from your VenCome dashboard.
-  </p>
+      // 2. Parse and validate dates
+      const checkInDate = new Date(checkIn);
+      const checkOutDate = new Date(checkOut);
 
-  <p style="margin-bottom: 0;">
-    We wish you a wonderful stay!
-  </p>
-</div>
+      if (isNaN(checkInDate) || isNaN(checkOutDate)) {
+        return res.status(400).json({ error: "Invalid date format" });
+      }
+      if (checkOutDate <= checkInDate) {
+        return res
+          .status(400)
+          .json({ error: "Check-out must be after check-in" });
+      }
+      if (checkOutDate < new Date()) {
+        return res.status(400).json({ error: "Cannot book in the past" });
+      }
 
-<!-- Footer -->
-<div style="background-color: #f0f0f0; padding: 20px; text-align: center; font-size: 12px; color: #888;">
-  This is an automated message, please do not reply.<br />
-  © ${new Date().getFullYear()} VenCome. All rights reserved.
-</div>
+      // 3. Prevent double booking
+      const conflict = await Booking.findOne({
+        property: propertyId,
+        status: { $in: ["confirmed", "pending"] },
+        checkIn: { $lt: checkOutDate },
+        checkOut: { $gt: checkInDate },
+      });
+      if (conflict) {
+        return res
+          .status(409)
+          .json({ error: "These dates are already booked" });
+      }
 
-  </div>
-</div>
-`,
-    });
-    return res.status(201).json(booking);
-  } catch (err) {
-    console.error("Booking creation failed:", err);
-    return res.status(500).json({ error: "Failed to create booking" });
+      // 4. Check host-blocked dates
+      const isBlocked = property.blockedDates?.some(({ start, end }) => {
+        const blockStart = new Date(start);
+        const blockEnd = new Date(end);
+        return checkInDate < blockEnd && checkOutDate > blockStart;
+      });
+      if (isBlocked) {
+        return res.status(409).json({ error: "These dates are unavailable" });
+      }
+
+      // 5. Check availability setting
+      if (property.availability && property.availability !== "all") {
+        const days = [];
+        const cursor = new Date(checkInDate);
+        while (cursor < checkOutDate) {
+          days.push(cursor.getDay());
+          cursor.setDate(cursor.getDate() + 1);
+        }
+        if (property.availability === "weekdays") {
+          const hasWeekend = days.some((d) => d === 0 || d === 6);
+          if (hasWeekend) {
+            return res
+              .status(409)
+              .json({ error: "This space is only available on weekdays" });
+          }
+        }
+        if (property.availability === "weekends") {
+          const hasWeekday = days.some((d) => d >= 1 && d <= 5);
+          if (hasWeekday) {
+            return res
+              .status(409)
+              .json({ error: "This space is only available on weekends" });
+          }
+        }
+      }
+
+      // 6. Calculate total price
+      let totalPrice = 0;
+      let totalNights = 0;
+      let totalHours = 0;
+
+      if (property.pricing.pricingType === "DAILY") {
+        const nights = Math.ceil(
+          (checkOutDate - checkInDate) / (1000 * 60 * 60 * 24)
+        );
+        totalNights = Math.max(nights, 1);
+        const nightPrice = Number(property.pricing.weekdayPrice) || 0;
+        if (nightPrice <= 0) {
+          return res.status(400).json({ error: "DAILY price not configured" });
+        }
+        totalPrice = totalNights * nightPrice;
+      } else if (property.pricing.pricingType === "HOURLY") {
+        totalHours = (checkOutDate - checkInDate) / (1000 * 60 * 60);
+        if (totalHours < 1) {
+          return res.status(400).json({ error: "Minimum 1 hour required" });
+        }
+        const hourPrice = Number(property.pricing.hourlyPrice) || 0;
+        if (hourPrice <= 0) {
+          return res.status(400).json({ error: "Hourly price not configured" });
+        }
+        totalPrice = totalHours * hourPrice;
+      } else {
+        return res.status(400).json({ error: "Invalid pricing type" });
+      }
+
+      // 7. Add extras
+      const validExtras = Array.isArray(property.extras) ? property.extras : [];
+      const selectedExtras = validExtras.filter((e) => extras.includes(e.name));
+      const extrasTotal = selectedExtras.reduce(
+        (sum, e) => sum + (Number(e.price) || 0),
+        0
+      );
+      totalPrice += extrasTotal;
+
+      // 8. Apply discounts
+      let discount = 0;
+      if (property.pricing.pricingType === "DAILY") {
+        if (property.pricing.discounts?.newListing)
+          discount += totalPrice * 0.2;
+        if (totalNights >= 7 && property.pricing.discounts?.weekly)
+          discount += totalPrice * 0.1;
+        if (totalNights >= 30 && property.pricing.discounts?.monthly)
+          discount += totalPrice * 0.2;
+      }
+      totalPrice = Math.round((totalPrice - discount) * 100) / 100;
+      if (isNaN(totalPrice) || totalPrice < 0) totalPrice = 0;
+
+      // 9. Create booking
+      const booking = new Booking({
+        property: propertyId,
+        guest: guestId,
+        host: property.host._id,
+        checkIn: checkInDate,
+        checkOut: checkOutDate,
+        guests: guests || 1,
+        extras: selectedExtras,
+        totalPrice,
+        discountApplied: Math.round(discount * 100) / 100,
+        totalNights:
+          property.pricing.pricingType === "DAILY" ? totalNights : undefined,
+        totalHours:
+          property.pricing.pricingType === "HOURLY"
+            ? Number(totalHours.toFixed(2))
+            : undefined,
+        status: property.bookingSettings?.instantBook ? "confirmed" : "pending",
+        licensePdfUrl,
+      });
+
+      await booking.save();
+      await booking.populate(["guest", "property", "host"]);
+
+      // 10. Block dates if instantly confirmed
+      if (booking.status === "confirmed") {
+        await Property.findByIdAndUpdate(propertyId, {
+          $push: {
+            blockedDates: {
+              start: checkInDate,
+              end: checkOutDate,
+              reason: "booked",
+              bookingId: booking._id,
+            },
+          },
+        });
+      }
+
+      // 11. Notify host
+      const user = await User.findById(req.user.id);
+      const displayName = user.displayName || user.firstName || "there";
+
+      await createNotification(req.app.get("io"), {
+        userId: property.host._id,
+        type: "booking_request",
+        title: "New Booking",
+        body: `${displayName} booked ${property.title}`,
+        link: `/bookings/${booking._id}`,
+        meta: { bookingId: booking._id },
+      });
+
+      // 12. Send confirmation email
+      sendEmail({
+        to: user.email,
+        subject: "Your booking is confirmed 🎉",
+        html: `
+          <div style="font-family: 'Manrope', Arial, sans-serif; background-color: #f4f4f7; padding: 20px;">
+            <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+              <div style="background-color: #f0f0f0; padding: 20px; text-align: center;">
+                <img src="https://vencome.netlify.app/logo-blue.png" alt="VenCome" style="max-width: 150px;">
+              </div>
+              <div style="padding: 30px; color: #333;">
+                <h2 style="color: #305CDE; text-align: center; margin-top: 0;">Booking Confirmed 🎉</h2>
+                <p>Hi <strong>${displayName}</strong>,</p>
+                <p>Great news! Your booking has been <strong>successfully confirmed</strong>.</p>
+                <div style="background-color: #f5f7ff; padding: 20px; margin: 25px 0; border-radius: 8px;">
+                  <table width="100%" cellpadding="0" cellspacing="0" style="font-size: 14px;">
+                    <tr>
+                      <td style="padding: 6px 0; color: #666;">Property</td>
+                      <td style="padding: 6px 0; text-align: right; font-weight: 600;">${
+                        property.title || "—"
+                      }</td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 6px 0; color: #666;">Location</td>
+                      <td style="padding: 6px 0; text-align: right; font-weight: 600;">${
+                        property.location?.city || ""
+                      }${
+          property.location?.country ? `, ${property.location.country}` : ""
+        }</td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 6px 0; color: #666;">Check-in</td>
+                      <td style="padding: 6px 0; text-align: right; font-weight: 600;">${booking.checkIn.toLocaleDateString()}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 6px 0; color: #666;">Check-out</td>
+                      <td style="padding: 6px 0; text-align: right; font-weight: 600;">${booking.checkOut.toLocaleDateString()}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 6px 0; color: #666;">Guests</td>
+                      <td style="padding: 6px 0; text-align: right; font-weight: 600;">${
+                        booking.guests
+                      }</td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 6px 0; color: #666;">Total to be paid</td>
+                      <td style="padding: 6px 0; text-align: right; font-weight: 600;">${
+                        booking.totalPrice
+                      }</td>
+                    </tr>
+                  </table>
+                </div>
+                <p>The host has been notified and may contact you with additional details before your stay.</p>
+                <p>You can pay for, view or manage your booking anytime from your VenCome dashboard.</p>
+                <p style="margin-bottom: 0;">We wish you a wonderful stay!</p>
+              </div>
+              <div style="background-color: #f0f0f0; padding: 20px; text-align: center; font-size: 12px; color: #888;">
+                This is an automated message, please do not reply.<br />
+                © ${new Date().getFullYear()} VenCome. All rights reserved.
+              </div>
+            </div>
+          </div>
+        `,
+      });
+
+      return res.status(201).json(booking);
+    } catch (err) {
+      if (req.file && fs.existsSync(req.file.path))
+        fs.unlinkSync(req.file.path);
+      console.error("Booking creation failed:", err.message, err.stack);
+      return res.status(500).json({ error: err.message });
+    }
   }
-});
+);
 
 // GET: Host's bookings
 router.get("/host", auth, async (req, res) => {

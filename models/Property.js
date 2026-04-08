@@ -44,15 +44,30 @@ const propertySchema = new mongoose.Schema(
       bathroom: { type: Number, default: 1 },
     },
     extras: [{ name: String, price: Number }],
+    cqcDocuments: {
+      type: [String],
+      default: [],
+    },
     pricing: {
-      pricingType: { type: String, enum: ["DAILY", "HOURLY"], required: true, default: "DAILY" },
+      pricingType: {
+        type: String,
+        enum: ["DAILY", "HOURLY"],
+        required: true,
+        default: "DAILY",
+      },
       weekdayPrice: {
-        type: Number, min: 0,
-        required: function () { return this.pricing?.pricingType === "DAILY"; },
+        type: Number,
+        min: 0,
+        required: function () {
+          return this.pricing?.pricingType === "DAILY";
+        },
       },
       hourlyPrice: {
-        type: Number, min: 0,
-        required: function () { return this.pricing?.pricingType === "HOURLY"; },
+        type: Number,
+        min: 0,
+        required: function () {
+          return this.pricing?.pricingType === "HOURLY";
+        },
       },
       minHours: { type: Number, default: 1 },
       preTaxPrice: Number,
@@ -85,20 +100,42 @@ const propertySchema = new mongoose.Schema(
       enum: ["flexible", "moderate", "strict", "non-refundable"],
       default: "moderate",
     },
-    availability: { type: String, enum: ["all", "weekdays", "weekends", "custom"], default: "all" },
+    availability: {
+      type: String,
+      enum: ["all", "weekdays", "weekends", "custom"],
+      default: "all",
+    },
     customAvailability: {
-      days: [{ type: String, enum: ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] }],
+      days: [
+        {
+          type: String,
+          enum: [
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday",
+          ],
+        },
+      ],
       startTime: String,
       endTime: String,
       minBookingHours: { type: Number, default: 2 },
     },
-    blockedDates: [{
-      start: { type: Date, required: true },
-      end: { type: Date, required: true },
-      reason: { type: String, enum: ["booked", "maintenance", "personal", "external"] },
-      bookingId: { type: mongoose.Schema.Types.ObjectId, ref: "Booking" },
-      externalEventId: String,
-    }],
+    blockedDates: [
+      {
+        start: { type: Date, required: true },
+        end: { type: Date, required: true },
+        reason: {
+          type: String,
+          enum: ["booked", "maintenance", "personal", "external"],
+        },
+        bookingId: { type: mongoose.Schema.Types.ObjectId, ref: "Booking" },
+        externalEventId: String,
+      },
+    ],
     icalUrl: String,
   },
   { timestamps: true }

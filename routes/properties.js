@@ -33,10 +33,23 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    if (!file.mimetype.startsWith("image/")) {
-      return cb(new Error("Only image files are allowed!"), false);
+    const allowedMimeTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/gif",
+      "image/webp",
+      "application/pdf",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ];
+
+    if (!allowedMimeTypes.includes(file.mimetype)) {
+      return cb(
+        new Error("Only image, PDF, DOC, and DOCX files are allowed!"),
+        false
+      );
     }
     cb(null, true);
   },
@@ -89,7 +102,10 @@ router.post(
   "/",
   auth, // reject unauthenticated first
   validatePricing,
-  upload.array("images", 45),
+  upload.fields([
+    { name: "images", maxCount: 45 },
+    { name: "cqcDocuments", maxCount: 10 },
+  ]),
   async (req, res) => {
     try {
       // ── Parse JSON safely ──
@@ -115,7 +131,10 @@ router.post(
         timeBlocks = req.body.timeBlocks ? JSON.parse(req.body.timeBlocks) : [];
       } catch (parseError) {
         console.error("JSON Parse Error:", parseError);
-        cleanupTempFiles(req.files);
+        cleanupTempFiles([
+          ...(req.files?.images || []),
+          ...(req.files?.cqcDocuments || []),
+        ]);
         return res.status(400).json({
           error: "Invalid JSON format in request body",
           details: parseError.message,
@@ -128,7 +147,10 @@ router.post(
 
       // ── Required fields check ──
       if (!title || !description) {
-        cleanupTempFiles(req.files);
+        cleanupTempFiles([
+          ...(req.files?.images || []),
+          ...(req.files?.cqcDocuments || []),
+        ]);
         return res.status(400).json({
           error: "Missing required fields: title and description are required",
         });
@@ -138,7 +160,10 @@ router.post(
       if (category?.trim()) {
         const categoryDoc = await Category.findById(category);
         if (!categoryDoc) {
-          cleanupTempFiles(req.files);
+          cleanupTempFiles([
+            ...(req.files?.images || []),
+            ...(req.files?.cqcDocuments || []),
+          ]);
           return res.status(404).json({ error: "Category not found" });
         }
       }
@@ -199,13 +224,29 @@ router.post(
 
       // ── Handle image upload to R2 ──
       let r2ImageUrls = [];
-      if (req.files?.length > 0) {
+      const imageFiles = req.files?.images || [];
+      if (imageFiles.length > 0) {
         try {
-          r2ImageUrls = await uploadFilesToR2(req.files);
+          r2ImageUrls = await uploadFilesToR2(imageFiles);
         } catch (uploadError) {
           console.error("Error uploading to R2:", uploadError);
           return res.status(500).json({
             error: "Failed to upload images",
+            details: uploadError.message,
+          });
+        }
+      }
+
+      // ── Handle CQC document upload ──
+      let cqcDocumentUrls = [];
+      const cqcFiles = req.files?.cqcDocuments || [];
+      if (cqcFiles.length > 0) {
+        try {
+          cqcDocumentUrls = await uploadFilesToR2(cqcFiles, "cqc-documents");
+        } catch (uploadError) {
+          console.error("Error uploading CQC documents to R2:", uploadError);
+          return res.status(500).json({
+            error: "Failed to upload CQC documents",
             details: uploadError.message,
           });
         }
@@ -252,12 +293,13 @@ router.post(
         category: category && category.trim() ? category : undefined,
         subcategory: subcategory ? JSON.parse(subcategory) : [],
         availability,
-        timeBlocks, // <-- new field stored separately
+        timeBlocks,
         blockedDates: blockedDates.map((d) => ({
           start: new Date(d.start),
           end: new Date(d.end),
           reason: d.reason || "personal",
         })),
+        cqcDocuments: cqcDocumentUrls,
       });
 
       const savedProperty = await property.save();
@@ -330,7 +372,10 @@ router.post(
       });
     } catch (err) {
       console.error("Error creating property:", err);
-      cleanupTempFiles(req.files);
+      cleanupTempFiles([
+        ...(req.files?.images || []),
+        ...(req.files?.cqcDocuments || []),
+      ]);
       res.status(500).json({ error: "Server error", details: err.message });
     }
   }
@@ -538,12 +583,18 @@ router.put("/:id", auth, upload.array("images", 45), async (req, res) => {
     const property = await Property.findById(req.params.id);
 
     if (!property) {
-      cleanupTempFiles(req.files);
+      cleanupTempFiles([
+        ...(req.files?.images || []),
+        ...(req.files?.cqcDocuments || []),
+      ]);
       return res.status(404).json({ error: "Property not found" });
     }
 
     if (property.host.toString() !== req.user.id) {
-      cleanupTempFiles(req.files);
+      cleanupTempFiles([
+        ...(req.files?.images || []),
+        ...(req.files?.cqcDocuments || []),
+      ]);
       return res.status(403).json({
         error: "Unauthorized: You are not the host of this property",
       });
@@ -577,7 +628,10 @@ router.put("/:id", auth, upload.array("images", 45), async (req, res) => {
       bookingSettings = parseField("bookingSettings", "bookingSettings");
       blockedDates = parseField("blockedDates", "blockedDates");
     } catch (e) {
-      cleanupTempFiles(req.files);
+      cleanupTempFiles([
+        ...(req.files?.images || []),
+        ...(req.files?.cqcDocuments || []),
+      ]);
       return res.status(400).json({ error: e.message });
     }
 
@@ -586,7 +640,10 @@ router.put("/:id", auth, upload.array("images", 45), async (req, res) => {
     if (category && category.trim()) {
       const categoryExists = await Category.findById(category);
       if (!categoryExists) {
-        cleanupTempFiles(req.files);
+        cleanupTempFiles([
+          ...(req.files?.images || []),
+          ...(req.files?.cqcDocuments || []),
+        ]);
         return res.status(400).json({ error: "Invalid category ID" });
       }
     }
@@ -636,7 +693,10 @@ router.put("/:id", auth, upload.array("images", 45), async (req, res) => {
     });
   } catch (err) {
     console.error("Error updating property:", err);
-    cleanupTempFiles(req.files);
+    cleanupTempFiles([
+      ...(req.files?.images || []),
+      ...(req.files?.cqcDocuments || []),
+    ]);
     res.status(500).json({ error: "Server error", details: err.message });
   }
 });
