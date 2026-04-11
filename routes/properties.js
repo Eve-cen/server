@@ -413,10 +413,16 @@ router.get("/", async (req, res) => {
 
 // ✅ Search properties
 router.get("/search", async (req, res) => {
-  const { location, category, minPrice, maxPrice, checkIn, checkOut } =
-    req.query;
+  const {
+    location,
+    category,
+    minPrice,
+    maxPrice,
+    checkIn,
+    checkOut,
+    duration,
+  } = req.query;
 
-  // Normalise cache key — sort keys, skip falsy values
   const cacheKey = `search:${[
     location || "",
     category || "",
@@ -424,6 +430,7 @@ router.get("/search", async (req, res) => {
     maxPrice || "",
     checkIn || "",
     checkOut || "",
+    duration || "", // ← new
   ].join(":")}`;
 
   try {
@@ -433,6 +440,7 @@ router.get("/search", async (req, res) => {
     }
 
     let query = {};
+
     if (location) {
       query.$or = [
         { "location.address": { $regex: new RegExp(location, "i") } },
@@ -452,6 +460,22 @@ router.get("/search", async (req, res) => {
       query["pricing.weekdayPrice"] = {};
       if (minPrice) query["pricing.weekdayPrice"].$gte = Number(minPrice);
       if (maxPrice) query["pricing.weekdayPrice"].$lte = Number(maxPrice);
+    }
+
+    // Duration filter — maps slug to a min/max day range
+    // Assumes properties have a `minRentalDays` field (adjust to your schema)
+    const DURATION_RANGES = {
+      less_than_1_month: { max: 29 },
+      "1_to_3_months": { min: 30, max: 90 },
+      "3_to_12_months": { min: 91, max: 364 },
+      "12_plus_months": { min: 365 },
+    };
+
+    if (duration && DURATION_RANGES[duration]) {
+      const { min, max } = DURATION_RANGES[duration];
+      query["minRentalDays"] = {};
+      if (min !== undefined) query["minRentalDays"].$gte = min;
+      if (max !== undefined) query["minRentalDays"].$lte = max;
     }
 
     // TODO: Implement proper availability filtering
