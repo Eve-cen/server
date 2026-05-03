@@ -105,6 +105,7 @@ router.post(
   upload.fields([
     { name: "images", maxCount: 45 },
     { name: "cqcDocuments", maxCount: 10 },
+    { name: "leaseFile", maxCount: 1 }, // ✅ NEW: Added lease file field
   ]),
   async (req, res) => {
     try {
@@ -134,6 +135,7 @@ router.post(
         cleanupTempFiles([
           ...(req.files?.images || []),
           ...(req.files?.cqcDocuments || []),
+          ...(req.files?.leaseFile || []), // ✅ NEW: Added lease file cleanup
         ]);
         return res.status(400).json({
           error: "Invalid JSON format in request body",
@@ -150,6 +152,7 @@ router.post(
         cleanupTempFiles([
           ...(req.files?.images || []),
           ...(req.files?.cqcDocuments || []),
+          ...(req.files?.leaseFile || []), // ✅ NEW: Added lease file cleanup
         ]);
         return res.status(400).json({
           error: "Missing required fields: title and description are required",
@@ -163,6 +166,7 @@ router.post(
           cleanupTempFiles([
             ...(req.files?.images || []),
             ...(req.files?.cqcDocuments || []),
+            ...(req.files?.leaseFile || []), // ✅ NEW: Added lease file cleanup
           ]);
           return res.status(404).json({ error: "Category not found" });
         }
@@ -242,11 +246,27 @@ router.post(
       const cqcFiles = req.files?.cqcDocuments || [];
       if (cqcFiles.length > 0) {
         try {
-          cqcDocumentUrls = await uploadFilesToR2(cqcFiles, "cqc-documents");
+          cqcDocumentUrls = await uploadFilesToR2(cqcFiles);
         } catch (uploadError) {
           console.error("Error uploading CQC documents to R2:", uploadError);
           return res.status(500).json({
             error: "Failed to upload CQC documents",
+            details: uploadError.message,
+          });
+        }
+      }
+
+      // ✅ NEW: Handle lease agreement upload
+      let leaseAgreementUrl = null;
+      const leaseFiles = req.files?.leaseFile || [];
+      if (leaseFiles.length > 0) {
+        try {
+          const uploadedLeaseUrls = await uploadFilesToR2(leaseFiles);
+          leaseAgreementUrl = uploadedLeaseUrls[0]; // Only one file expected
+        } catch (uploadError) {
+          console.error("Error uploading lease agreement to R2:", uploadError);
+          return res.status(500).json({
+            error: "Failed to upload lease agreement",
             details: uploadError.message,
           });
         }
@@ -300,6 +320,7 @@ router.post(
           reason: d.reason || "personal",
         })),
         cqcDocuments: cqcDocumentUrls,
+        leaseAgreement: leaseAgreementUrl, // ✅ NEW: Added lease agreement field
       });
 
       const savedProperty = await property.save();
@@ -375,6 +396,7 @@ router.post(
       cleanupTempFiles([
         ...(req.files?.images || []),
         ...(req.files?.cqcDocuments || []),
+        ...(req.files?.leaseFile || []), // ✅ NEW: Added lease file cleanup
       ]);
       res.status(500).json({ error: "Server error", details: err.message });
     }

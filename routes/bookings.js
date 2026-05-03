@@ -638,4 +638,353 @@ router.delete("/:id/cancel", auth, async (req, res) => {
   }
 });
 
+// ====================== MULTER SETUP ======================
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = "uploads/temp/";
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, uniqueSuffix + "-" + file.originalname);
+  },
+});
+
+const uploadLease = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max
+  fileFilter: (req, file, cb) => {
+    const allowedMimeTypes = [
+      "application/pdf",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ];
+
+    if (!allowedMimeTypes.includes(file.mimetype)) {
+      return cb(new Error("Only PDF, DOC, and DOCX files are allowed!"), false);
+    }
+    cb(null, true);
+  },
+});
+
+// ====================== HELPERS ======================
+
+/**
+ * Clean up temporary files
+ */
+const cleanupTempFiles = (files) => {
+  files?.forEach((file) => {
+    if (fs.existsSync(file.path)) {
+      try {
+        fs.unlinkSync(file.path);
+      } catch (e) {
+        console.error("Error deleting temp file:", e);
+      }
+    }
+  });
+};
+
+/**
+ * Upload file to R2 storage
+ * Assumes you have uploadToR2 function from your R2 config
+ */
+const uploadFileToR2 = async (
+  filePath,
+  fileName,
+  folder = "lease-agreements"
+) => {
+  try {
+    const uploadToR2 = require("../utils/r2"); // Adjust path to your R2 utility
+    const result = await uploadToR2(filePath, `${folder}/${fileName}`);
+    return result.location; // Return the full URL
+  } catch (error) {
+    console.error(`Error uploading ${fileName} to R2:`, error);
+    throw error;
+  }
+};
+
+/**
+ * Delete file from R2 storage
+ */
+const deleteFileFromR2 = async (fileUrl) => {
+  try {
+    if (!fileUrl) return;
+    const deleteFromR2 = require("../utils/r2");
+    const fileName = fileUrl.split("/").pop();
+    await deleteFromR2(fileName);
+  } catch (error) {
+    console.error(`Error deleting ${fileUrl} from R2:`, error);
+  }
+};
+
+// ====================== ROUTES ======================
+
+/**
+ * ✅ Upload lease agreement for a booking
+ * POST /bookings/upload-lease
+ * Used by HOST when opening booking details modal
+ */
+router.post(
+  "/upload-lease",
+  auth,
+  uploadLease.single("leaseFile"),
+  async (req, res) => {
+    try {
+      const { bookingId } = req.body;
+      const userId = req.user.id;
+
+      // ── Validate required fields ──
+      if (!bookingId || !req.file) {
+        cleanupTempFiles([req.file]);
+        return res.status(400).json({
+          error: "Missing required fields: bookingId and leaseFile",
+        });
+      }
+
+      // ── Fetch booking ──
+      const booking = await Booking.findById(bookingId).populate("property");
+      if (!booking) {
+        cleanupTempFiles([req.file]);
+        return res.status(404).json({ error: "Booking not found" });
+      }
+
+      // ── Verify user is the host ──
+      const property = await Property.findById(booking.property._id);
+      if (!property || property.host.toString() !== userId) {
+        cleanupTempFiles([req.file]);
+        return res.status(403).json({
+          error: "You are not authorized to upload a lease for this booking",
+        });
+      }
+
+      // ── Delete old lease if exists ──
+      if (booking.leaseUrl) {
+        await deleteFileFromR2(booking.leaseUrl);
+      }
+
+      // ── Upload new lease to R2 ──
+      let leaseUrl;
+      try {
+        const fileName = `${bookingId}-${req.file.filename}`;
+        leaseUrl = await uploadFileToR2(req.file.path, fileName);
+      } catch (uploadError) {
+        console.error("Error uploading lease to R2:", uploadError);
+        cleanupTempFiles([req.file]);
+        return res.status(500).json({
+          error: "Failed to upload lease agreement",
+          details: uploadError.message,
+        });
+      }
+
+      // ── Update booking with lease URL ──
+      booking.leaseUrl = leaseUrl;
+      const updatedBooking = await booking.save();
+
+      // ── Cleanup temp file ──
+      cleanupTempFiles([req.file]);
+
+      res.status(200).json({
+        success: true,
+        message: "Lease agreement uploaded successfully",
+        leaseUrl: updatedBooking.leaseUrl,
+      });
+    } catch (err) {
+      console.error("Error uploading lease:", err);
+      cleanupTempFiles([req.file]);
+      res.status(500).json({
+        error: "Server error",
+        details: err.message,
+      });
+    }
+  }
+);
+
+/**
+ * ✅ Sign lease agreement
+ * PUT /bookings/:id/sign-lease
+ * Used by GUEST to confirm they've read and agreed to the lease
+ */
+router.put("/sign-lease/:id", auth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    // ── Fetch booking ──
+    const booking = await Booking.findById(id);
+    if (!booking) {
+      return res.status(404).json({ error: "Booking not found" });
+    }
+
+    // ── Verify user is the guest ──
+    if (booking.guest.toString() !== userId) {
+      return res.status(403).json({
+        error: "You are not authorized to sign this lease",
+      });
+    }
+
+    // ── Check if lease exists ──
+    if (!booking.leaseUrl) {
+      return res.status(400).json({
+        error: "No lease agreement has been uploaded for this booking",
+      });
+    }
+
+    // ── Update booking with lease signature ──
+    booking.leaseSignedAt = new Date();
+    const updatedBooking = await booking.save();
+
+    // ── Optional: Send email notification to host ──
+    const property = await Property.findById(booking.property).populate("host");
+    const guest = await User.findById(booking.guest);
+
+    if (property && guest) {
+      const hostUser = property.host;
+      sendEmail({
+        to: hostUser.email,
+        subject: `Guest signed lease agreement for ${property.title}`,
+        html: `
+          <div style="font-family: 'Manrope', Arial, sans-serif; background-color: #f4f4f7; padding: 20px;">
+            <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+              <div style="background-color: #f0f0f0; padding: 20px; text-align: center;">
+                <img src="https://vencome.netlify.app/logo-blue.png" alt="VenCome" style="max-width: 150px;">
+              </div>
+              <div style="padding: 30px; color: #333;">
+                <h2 style="color: #305CDE; text-align: center; margin-top: 0;">Lease Agreement Signed ✓</h2>
+                <p>Hi <strong>${hostUser.firstName || "there"}</strong>,</p>
+                <p><strong>${guest.firstName} ${
+          guest.lastName
+        }</strong> has signed the lease agreement for <strong>${
+          property.title
+        }</strong>.</p>
+                <div style="background-color: #f5f7ff; padding: 20px; margin: 25px 0; border-radius: 8px;">
+                  <table width="100%" cellpadding="0" cellspacing="0" style="font-size: 14px;">
+                    <tr>
+                      <td style="padding: 6px 0; color: #666;">Guest</td>
+                      <td style="padding: 6px 0; text-align: right; font-weight: 600;">${
+                        guest.firstName
+                      } ${guest.lastName}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 6px 0; color: #666;">Property</td>
+                      <td style="padding: 6px 0; text-align: right; font-weight: 600;">${
+                        property.title
+                      }</td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 6px 0; color: #666;">Signed on</td>
+                      <td style="padding: 6px 0; text-align: right; font-weight: 600;">${new Date().toLocaleDateString()}</td>
+                    </tr>
+                  </table>
+                </div>
+                <p>The booking is now ready to proceed. You can message the guest or update the booking status from your dashboard.</p>
+              </div>
+              <div style="background-color: #f0f0f0; padding: 20px; text-align: center; font-size: 12px; color: #888;">
+                This is an automated message, please do not reply.<br />
+                © ${new Date().getFullYear()} VenCome. All rights reserved.
+              </div>
+            </div>
+          </div>
+        `,
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Lease agreement signed successfully",
+      leaseSignedAt: updatedBooking.leaseSignedAt,
+    });
+  } catch (err) {
+    console.error("Error signing lease:", err);
+    res.status(500).json({
+      error: "Server error",
+      details: err.message,
+    });
+  }
+});
+
+/**
+ * ✅ Get lease agreement details for a booking
+ * GET /bookings/:id/lease
+ * Used to check lease status and URL
+ */
+router.get("/:id/lease", auth, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const booking = await Booking.findById(id);
+    if (!booking) {
+      return res.status(404).json({ error: "Booking not found" });
+    }
+
+    res.status(200).json({
+      success: true,
+      leaseUrl: booking.leaseUrl || null,
+      leaseSignedAt: booking.leaseSignedAt || null,
+      leaseStatus: booking.leaseSignedAt ? "signed" : "pending",
+    });
+  } catch (err) {
+    console.error("Error fetching lease details:", err);
+    res.status(500).json({
+      error: "Server error",
+      details: err.message,
+    });
+  }
+});
+
+/**
+ * ✅ Delete lease agreement
+ * DELETE /bookings/:id/lease
+ * Used by HOST to remove a lease (only if not yet signed by guest)
+ */
+router.delete("/:id/lease", auth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const booking = await Booking.findById(id).populate("property");
+    if (!booking) {
+      return res.status(404).json({ error: "Booking not found" });
+    }
+
+    // ── Verify user is the host ──
+    const property = await Property.findById(booking.property._id);
+    if (!property || property.host.toString() !== userId) {
+      return res.status(403).json({
+        error: "You are not authorized to delete this lease",
+      });
+    }
+
+    // ── Prevent deletion if already signed ──
+    if (booking.leaseSignedAt) {
+      return res.status(400).json({
+        error: "Cannot delete a lease that has already been signed",
+      });
+    }
+
+    // ── Delete from R2 ──
+    if (booking.leaseUrl) {
+      await deleteFileFromR2(booking.leaseUrl);
+    }
+
+    // ── Update booking ──
+    booking.leaseUrl = null;
+    await booking.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Lease agreement deleted successfully",
+    });
+  } catch (err) {
+    console.error("Error deleting lease:", err);
+    res.status(500).json({
+      error: "Server error",
+      details: err.message,
+    });
+  }
+});
+
 module.exports = router;

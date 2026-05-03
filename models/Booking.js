@@ -46,6 +46,21 @@ const bookingSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    leaseUrl: {
+      type: String,
+      default: null,
+      description: "URL to the uploaded lease agreement file in R2 storage",
+    },
+    leaseUploadedAt: {
+      type: Date,
+      default: null,
+      description: "Timestamp when lease was uploaded by host",
+    },
+    leaseSignedAt: {
+      type: Date,
+      default: null,
+      description: "Timestamp when guest signed the lease",
+    },
     stripeTransferId: String,
     reviewed: { type: Boolean, default: false },
     completed: { type: Boolean, default: false },
@@ -60,5 +75,9 @@ bookingSchema.index({ host: 1, status: 1 });
 bookingSchema.index({ property: 1, status: 1 });
 bookingSchema.index({ isPaid: 1, escrowReleased: 1, status: 1 });
 bookingSchema.index({ checkOut: 1 });
+
+bookingSchema.index({ property: 1, checkIn: 1, checkOut: 1 });
+bookingSchema.index({ status: 1 });
+bookingSchema.index({ leaseUrl: 1 });
 
 module.exports = mongoose.model("Booking", bookingSchema);

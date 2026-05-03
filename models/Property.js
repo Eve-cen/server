@@ -137,6 +137,10 @@ const propertySchema = new mongoose.Schema(
       },
     ],
     icalUrl: String,
+    leaseAgreement: {
+      type: String,
+      default: null,
+    },
   },
   { timestamps: true }
 );
