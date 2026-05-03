@@ -43,8 +43,8 @@ router.post("/create-checkout-session", auth, async (req, res) => {
       mode: "payment",
       // success_url: `${process.env.CLIENT_URL_DEV}/my-bookings?success=true`,
       // cancel_url: `${process.env.CLIENT_URL_DEV}/my-bookings?cancel=true`,
-      success_url: `${process.env.CLIENT_URL}/my-bookings?success=true`,
-      cancel_url: `${process.env.CLIENT_URL}/my-bookings?cancel=true`,
+      success_url: `${process.env.CLIENT_URL_DEV}/bookings/${booking._id}?success=true`,
+      cancel_url: `${process.env.CLIENT_URL_DEV}/bookings/${booking._id}?cancel=true`,
       metadata: { bookingId: booking._id.toString() },
     });
 
