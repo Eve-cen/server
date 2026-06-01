@@ -70,12 +70,7 @@ router.post("/signup", authLimiter, async (req, res) => {
     const otp = generateOTP();
     await storeOTP(normalizedEmail, otp);
 
-    res.json({
-      message: "Account created. OTP sent to email.",
-      requiresVerification: true,
-    });
-
-    sendEmail({
+    await sendEmail({
       to: normalizedEmail,
       subject: "Verify Your Email Address",
       html: emailTemplate(
@@ -83,6 +78,11 @@ router.post("/signup", authLimiter, async (req, res) => {
         `Your verification code is:`,
         otp
       ),
+    });
+
+    res.json({
+      message: "Account created. OTP sent to email.",
+      requiresVerification: true,
     });
   } catch (err) {
     console.error("Signup error:", err);
@@ -114,12 +114,7 @@ router.post("/login", authLimiter, async (req, res) => {
     const otp = generateOTP();
     await storeOTP(normalizedEmail, otp);
 
-    res.json({
-      message: "OTP sent to email. Please verify to complete login.",
-      requiresVerification: true,
-    });
-
-    sendEmail({
+    await sendEmail({
       to: normalizedEmail,
       subject: "Login Verification Code",
       html: emailTemplate(
@@ -127,6 +122,11 @@ router.post("/login", authLimiter, async (req, res) => {
         "Use the code below to complete your login:",
         otp
       ),
+    });
+
+    res.json({
+      message: "OTP sent to email. Please verify to complete login.",
+      requiresVerification: true,
     });
   } catch (err) {
     console.error("Login error:", err);
@@ -200,13 +200,13 @@ router.post("/resend-otp", otpLimiter, async (req, res) => {
     const otp = generateOTP();
     await storeOTP(normalizedEmail, otp);
 
-    res.json({ message: "OTP resent" });
-
-    sendEmail({
+    await sendEmail({
       to: normalizedEmail,
       subject: "Your new verification code",
       html: emailTemplate("New Verification Code", "Your new code is:", otp),
     });
+
+    res.json({ message: "OTP resent" });
   } catch (err) {
     res.status(500).json({ error: "Server error" });
   }
