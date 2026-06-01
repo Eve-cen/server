@@ -41,10 +41,15 @@ connectRedis().catch(console.error);
 
 app.set("trust proxy", 1);
 const server = http.createServer(app);
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://vencome.netlify.app",
+  "https://client-inky-nu-61.vercel.app",
+];
+
 const io = socketIo(server, {
   cors: {
-    // origin: process.env.CLIENT_URL_DEV,
-    origin: process.env.CLIENT_URL,
+    origin: allowedOrigins,
     methods: ["GET", "POST"],
     credentials: true,
   },
@@ -121,10 +126,7 @@ app.set("io", io);
 
 // Middleware
 const corsOptions = {
-  origin: [
-    "http://localhost:5173",
-    "https://vencome.netlify.app", // Add your deployed frontend here
-  ],
+  origin: allowedOrigins,
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
