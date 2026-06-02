@@ -33,7 +33,9 @@ const markCompletedBookings = require("./jobs/markCompletedBookings");
 const isSuspicious = require("./utils/suspicionEngine");
 const { connectRedis } = require("./utils/redisClient");
 
-dotenv.config({ path: "./config.env" });
+if (process.env.NODE_ENV !== "production") {
+  dotenv.config({ path: "./config.env" });
+}
 
 const app = express();
 

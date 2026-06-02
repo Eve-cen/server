@@ -3,12 +3,7 @@ const dotenv = require("dotenv");
 dotenv.config({ path: "./config.env" });
 
 const client = createClient({
-  username: process.env.REDIS_USERNAME || "default",
-  password: process.env.REDIS_PW,
-  socket: {
-    host: process.env.REDIS_HOST,
-    port: process.env.REDIS_PORT,
-  },
+  url: process.env.REDIS_URL || "redis://localhost:6379",
 });
 
 client.on("error", (err) => console.error("Redis Client Error", err));
