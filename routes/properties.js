@@ -196,6 +196,7 @@ router.post(
         "payoutMethods",
         "dob",
       ];
+      /*
       const missingFields = requiredFields.filter(
         (field) => !user[field] || user[field].toString().trim() === ""
       );
@@ -225,6 +226,7 @@ router.post(
           missingFields,
         });
       }
+      */
 
       // ── Handle image upload to R2 ──
       let r2ImageUrls = [];
