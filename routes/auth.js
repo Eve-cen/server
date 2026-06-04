@@ -153,7 +153,7 @@ router.post("/verify-login", otpLimiter, async (req, res) => {
     await user.save();
 
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
-      expiresIn: "1h",
+      expiresIn: "7d",
     });
     const refreshToken = jwt.sign(
       { id: user._id },
@@ -227,7 +227,7 @@ router.post("/refresh-token", async (req, res) => {
         .json({ error: "Invalid or expired refresh token" });
 
     const token = jwt.sign({ id: decoded.id }, process.env.JWT_SECRET, {
-      expiresIn: "1h",
+      expiresIn: "7d",
     });
     res.json({ token });
   } catch {
@@ -289,7 +289,7 @@ router.post("/google", async (req, res) => {
     }
 
     const jwtToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
-      expiresIn: "1h",
+      expiresIn: "7d",
     });
     const refreshToken = jwt.sign(
       { id: user._id },
