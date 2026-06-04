@@ -101,9 +101,23 @@ const propertySchema = new mongoose.Schema(
       default: "moderate",
     },
     availability: {
-      type: String,
-      enum: ["all", "weekdays", "weekends", "custom"],
-      default: "all",
+      openDays: {
+        type: [String],
+        enum: [
+          "Monday",
+          "Tuesday",
+          "Wednesday",
+          "Thursday",
+          "Friday",
+          "Saturday",
+          "Sunday",
+        ],
+        default: [],
+      },
+      openTime: { type: String, default: "" },
+      closeTime: { type: String, default: "" },
+      minNotice: { type: String, default: "" },
+      instantBook: { type: Boolean, default: false },
     },
     customAvailability: {
       days: [
