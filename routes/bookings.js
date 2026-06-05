@@ -331,6 +331,90 @@ router.post(
         `,
       });
 
+      const hostUser = await User.findById(property.host._id);
+
+      if (hostUser) {
+        const hostDisplayName = hostUser.displayName || hostUser.firstName || "there";
+        const guestDisplayName = user.displayName || user.firstName || "A guest";
+
+        sendEmail({
+          to: hostUser.email,
+          subject: `New booking request for ${property.title}`,
+          html: `
+            <div style="font-family: Arial, sans-serif; background-color: #f4f4f7; padding: 20px;">
+              <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+                <div style="background-color: #0A1628; padding: 24px; text-align: center;">
+                  <img src="https://vencome.netlify.app/logo-blue.png" alt="VenCome" style="max-width: 140px;">
+                </div>
+                <div style="padding: 30px; color: #333;">
+                  <h2 style="color: #0A1628; text-align: center; margin-top: 0;">
+                    ${booking.status === "confirmed" ? "New Booking Confirmed" : "New Booking Request"}
+                  </h2>
+                  <p>Hi <strong>${hostDisplayName}</strong>,</p>
+                  <p>
+                    ${
+                      booking.status === "confirmed"
+                        ? `<strong>${guestDisplayName}</strong> has instantly booked your space.`
+                        : `<strong>${guestDisplayName}</strong> has requested to book your space. Please log in to approve or decline.`
+                    }
+                  </p>
+                  <div style="background-color: #f5f7ff; padding: 20px; margin: 25px 0; border-radius: 8px;">
+                    <table width="100%" cellpadding="0" cellspacing="0" style="font-size: 14px;">
+                      <tr>
+                        <td style="padding: 6px 0; color: #666;">Property</td>
+                        <td style="padding: 6px 0; text-align: right; font-weight: 600;">${property.title}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 6px 0; color: #666;">Guest</td>
+                        <td style="padding: 6px 0; text-align: right; font-weight: 600;">${guestDisplayName}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 6px 0; color: #666;">Check-in</td>
+                        <td style="padding: 6px 0; text-align: right; font-weight: 600;">${booking.checkIn.toLocaleDateString()}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 6px 0; color: #666;">Check-out</td>
+                        <td style="padding: 6px 0; text-align: right; font-weight: 600;">${booking.checkOut.toLocaleDateString()}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 6px 0; color: #666;">Total</td>
+                        <td style="padding: 6px 0; text-align: right; font-weight: 600;">£${booking.totalPrice}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 6px 0; color: #666;">Status</td>
+                        <td style="padding: 6px 0; text-align: right; font-weight: 600; color: ${
+                          booking.status === "confirmed" ? "#16A34A" : "#D97706"
+                        };">
+                          ${booking.status === "confirmed" ? "Confirmed" : "Pending Approval"}
+                        </td>
+                      </tr>
+                    </table>
+                  </div>
+                  ${
+                    booking.status === "pending"
+                      ? `
+                  <div style="text-align: center; margin: 24px 0;">
+                    <a href="https://vencome.netlify.app/dashboard/bookings" style="background: #0A1628; color: #fff; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 15px;">
+                      Review Booking Request
+                    </a>
+                  </div>
+                  `
+                      : ""
+                  }
+                  <p style="margin-bottom: 0; color: #6B7280; font-size: 13px;">
+                    You can manage all your bookings from your VenCome host dashboard.
+                  </p>
+                </div>
+                <div style="background-color: #f0f0f0; padding: 20px; text-align: center; font-size: 12px; color: #888;">
+                  This is an automated message, please do not reply.<br />
+                  © ${new Date().getFullYear()} VenCome. All rights reserved.
+                </div>
+              </div>
+            </div>
+          `,
+        });
+      }
+
       return res.status(201).json(booking);
     } catch (err) {
       if (req.file && fs.existsSync(req.file.path))
