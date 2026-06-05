@@ -4,6 +4,7 @@ const propertySchema = new mongoose.Schema(
   {
     title: { type: String, required: true, trim: true },
     description: { type: String, required: true },
+    whatsIncluded: { type: String, default: "" },
     location: {
       address: { type: String, required: true },
       city: { type: String, required: true },
@@ -49,31 +50,17 @@ const propertySchema = new mongoose.Schema(
       default: [],
     },
     pricing: {
-      pricingType: {
-        type: String,
-        enum: ["DAILY", "HOURLY"],
-        required: true,
-        default: "DAILY",
-      },
-      weekdayPrice: {
-        type: Number,
-        min: 0,
-        required: function () {
-          return this.pricing?.pricingType === "DAILY";
-        },
-      },
-      hourlyPrice: {
-        type: Number,
-        min: 0,
-        required: function () {
-          return this.pricing?.pricingType === "HOURLY";
-        },
-      },
-      minHours: { type: Number, default: 1 },
-      preTaxPrice: Number,
+      weekdayPrice: { type: Number, default: 0 },
+      weekendPrice: { type: Number, default: 0 },
+      hourlyPrice: { type: Number, default: 0 },
+      pricingType: { type: String, default: "DAILY" },
+      hourly: { type: Number, default: 0 },
+      daily: { type: Number, default: 0 },
+      weekly: { type: Number, default: 0 },
+      monthly: { type: Number, default: 0 },
+      annual: { type: Number, default: 0 },
       discounts: {
         newListing: { type: Boolean, default: false },
-        lastMinute: { type: Boolean, default: false },
         weekly: { type: Boolean, default: false },
         monthly: { type: Boolean, default: false },
       },
