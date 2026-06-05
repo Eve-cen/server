@@ -287,7 +287,9 @@ router.post(
         (img) => !removedImages.includes(img.filename)
       );
       const allImages = [...draftImages.map((img) => img.url), ...r2ImageUrls];
-      const coverImage = allImages.length > 0 ? allImages[0] : null;
+      const coverImageIndex = parseInt(req.body.coverImageIndex) || 0;
+      const coverImage =
+        allImages.length > 0 ? allImages[coverImageIndex] || allImages[0] : null;
 
       // ── Validate custom availability ──
       if (
