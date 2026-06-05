@@ -305,11 +305,15 @@ router.post(
       const property = new Property({
         title,
         description,
+        whatsIncluded: req.body.whatsIncluded || "",
         location,
         coordinates,
         images: allImages,
         coverImage,
-        features,
+        features: {
+          ...features,
+          houseRules: features.houseRules || "",
+        },
         extras: extras || [],
         pricing,
         bookingSettings,
