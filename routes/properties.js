@@ -672,7 +672,8 @@ router.put("/:id", auth, upload.array("images", 45), async (req, res) => {
       extras,
       pricing,
       bookingSettings,
-      blockedDates;
+      blockedDates,
+      availability;
     try {
       location = parseField("location", "location");
       coordinates = parseField("coordinates", "coordinates");
@@ -689,7 +690,40 @@ router.put("/:id", auth, upload.array("images", 45), async (req, res) => {
       return res.status(400).json({ error: e.message });
     }
 
-    const { title, description, category, availability } = req.body;
+    const { title, description, category } = req.body;
+
+    if (req.body.availability) {
+      try {
+        availability =
+          typeof req.body.availability === "string"
+            ? JSON.parse(req.body.availability)
+            : req.body.availability;
+      } catch {
+        availability = null;
+      }
+    }
+
+    if (req.body.bookingSettings) {
+      try {
+        bookingSettings =
+          typeof req.body.bookingSettings === "string"
+            ? JSON.parse(req.body.bookingSettings)
+            : req.body.bookingSettings;
+      } catch {
+        bookingSettings = null;
+      }
+    }
+
+    if (req.body.features) {
+      try {
+        features =
+          typeof req.body.features === "string"
+            ? JSON.parse(req.body.features)
+            : req.body.features;
+      } catch {
+        features = null;
+      }
+    }
 
     if (category && category.trim()) {
       const categoryExists = await Category.findById(category);
@@ -718,6 +752,7 @@ router.put("/:id", auth, upload.array("images", 45), async (req, res) => {
 
     if (title) property.title = title;
     if (description) property.description = description;
+    if (req.body.whatsIncluded !== undefined) property.whatsIncluded = req.body.whatsIncluded;
     if (location) property.location = location;
     if (coordinates) property.coordinates = coordinates;
     if (features) property.features = features;
