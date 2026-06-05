@@ -752,10 +752,23 @@ router.put("/:id", auth, upload.array("images", 45), async (req, res) => {
 
     if (title) property.title = title;
     if (description) property.description = description;
-    if (req.body.whatsIncluded !== undefined) property.whatsIncluded = req.body.whatsIncluded;
+    if (req.body.whatsIncluded !== undefined) {
+      property.whatsIncluded = req.body.whatsIncluded;
+    }
     if (location) property.location = location;
     if (coordinates) property.coordinates = coordinates;
-    if (features) property.features = features;
+    if (features) {
+      property.features = {
+        ...(property.features?.toObject ? property.features.toObject() : property.features || {}),
+        ...features,
+      };
+    }
+    if (features?.houseRules !== undefined) {
+      property.features = {
+        ...property.features.toObject(),
+        houseRules: features.houseRules,
+      };
+    }
     if (extras) property.extras = extras;
     if (pricing) property.pricing = pricing;
     if (bookingSettings) property.bookingSettings = bookingSettings;
