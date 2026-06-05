@@ -758,16 +758,16 @@ router.put("/:id", auth, upload.array("images", 45), async (req, res) => {
     if (location) property.location = location;
     if (coordinates) property.coordinates = coordinates;
     if (features) {
+      const existingFeatures = property.features?.toObject
+        ? property.features.toObject()
+        : property.features || {};
       property.features = {
-        ...(property.features?.toObject ? property.features.toObject() : property.features || {}),
-        ...features,
+        ...existingFeatures,
+        capacity: features.capacity ?? existingFeatures.capacity ?? 0,
+        amenities: features.amenities ?? existingFeatures.amenities ?? [],
+        houseRules: features.houseRules ?? existingFeatures.houseRules ?? "",
       };
-    }
-    if (features?.houseRules !== undefined) {
-      property.features = {
-        ...property.features.toObject(),
-        houseRules: features.houseRules,
-      };
+      property.markModified("features");
     }
     if (extras) property.extras = extras;
     if (pricing) property.pricing = pricing;
