@@ -10,8 +10,12 @@ client.on("error", (err) => console.error("Redis Client Error", err));
 
 async function connectRedis() {
   if (!client.isOpen) {
-    await client.connect();
-    console.log("Redis connected successfully");
+    try {
+      await client.connect();
+      console.log("Redis connected successfully");
+    } catch (err) {
+      console.warn("Redis unavailable — continuing without Redis:", err.message);
+    }
   }
 }
 
