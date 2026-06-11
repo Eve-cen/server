@@ -17,9 +17,9 @@ router.post("/create-checkout-session", auth, async (req, res) => {
       guest: req.user.id,
     }).populate("property", "title coverImage");
 
-    const imageUrl = booking.property.coverImage
-      ? encodeURI(booking.property.coverImage)
-      : undefined;
+    const rawImage = booking.property.coverImage || "";
+    const isValidImageUrl = rawImage.startsWith("https://") || rawImage.startsWith("http://");
+    const imageUrl = isValidImageUrl ? encodeURI(rawImage) : undefined;
 
     if (!booking || booking.isPaid) {
       return res.status(400).json({ error: "Invalid or already paid booking" });
@@ -33,7 +33,7 @@ router.post("/create-checkout-session", auth, async (req, res) => {
             currency: "usd",
             product_data: {
               name: booking.property.title,
-              images: booking.property.coverImage ? [imageUrl] : undefined,
+              images: imageUrl ? [imageUrl] : undefined,
             },
             unit_amount: Math.round(booking.totalPrice * 100),
           },
