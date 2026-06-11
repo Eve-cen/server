@@ -17,13 +17,16 @@ router.post("/create-checkout-session", auth, async (req, res) => {
       guest: req.user.id,
     }).populate("property", "title coverImage");
 
-    const rawImage = booking.property.coverImage || "";
+    if (!booking) {
+      return res.status(400).json({ error: "Booking not found" });
+    }
+    if (booking.isPaid) {
+      return res.status(400).json({ error: "Booking already paid" });
+    }
+
+    const rawImage = booking.property?.coverImage || "";
     const isValidImageUrl = rawImage.startsWith("https://") || rawImage.startsWith("http://");
     const imageUrl = isValidImageUrl ? encodeURI(rawImage) : undefined;
-
-    if (!booking || booking.isPaid) {
-      return res.status(400).json({ error: "Invalid or already paid booking" });
-    }
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
