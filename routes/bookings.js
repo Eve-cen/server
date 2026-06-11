@@ -169,26 +169,47 @@ router.post(
       let totalNights = 0;
       let totalHours = 0;
 
-      if (property.pricing.pricingType === "DAILY") {
+      const pricingType = property.pricing.pricingType || "DAILY";
+
+      // Resolve daily price from either field
+      const dailyPrice = Number(property.pricing.weekdayPrice) ||
+                         Number(property.pricing.daily) || 0;
+
+      // Resolve hourly price from either field
+      const hourlyPrice = Number(property.pricing.hourlyPrice) ||
+                          Number(property.pricing.hourly) || 0;
+
+      // Auto-detect pricing type if not explicitly set
+      const effectivePricingType = (() => {
+        if (property.pricing.pricingType === "HOURLY") return "HOURLY";
+        if (property.pricing.pricingType === "DAILY") {
+          // If daily price exists use DAILY, else fall back to HOURLY
+          return dailyPrice > 0 ? "DAILY" : hourlyPrice > 0 ? "HOURLY" : "DAILY";
+        }
+        // No pricingType set — detect from available prices
+        if (dailyPrice > 0) return "DAILY";
+        if (hourlyPrice > 0) return "HOURLY";
+        return "DAILY";
+      })();
+
+      if (effectivePricingType === "DAILY") {
         const nights = Math.ceil(
           (checkOutDate - checkInDate) / (1000 * 60 * 60 * 24)
         );
         totalNights = Math.max(nights, 1);
-        const nightPrice = Number(property.pricing.weekdayPrice) || 0;
-        if (nightPrice <= 0) {
-          return res.status(400).json({ error: "DAILY price not configured" });
+        if (dailyPrice <= 0) {
+          return res.status(400).json({ error: "Daily price not configured for this space" });
         }
-        totalPrice = totalNights * nightPrice;
-      } else if (property.pricing.pricingType === "HOURLY") {
+        totalPrice = totalNights * dailyPrice;
+      } else if (effectivePricingType === "HOURLY") {
         totalHours = (checkOutDate - checkInDate) / (1000 * 60 * 60);
         if (totalHours < 1) {
           return res.status(400).json({ error: "Minimum 1 hour required" });
         }
-        const hourPrice = Number(property.pricing.hourlyPrice) || 0;
-        if (hourPrice <= 0) {
-          return res.status(400).json({ error: "Hourly price not configured" });
+        if (hourlyPrice <= 0) {
+          return res.status(400).json({ error: "Hourly price not configured for this space" });
         }
-        totalPrice = totalHours * hourPrice;
+        totalPrice = totalHours * hourlyPrice;
       } else {
         return res.status(400).json({ error: "Invalid pricing type" });
       }
