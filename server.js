@@ -169,6 +169,7 @@ app.use("/api/reviews", reviewsRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/profile", profileRoutes); // New
 app.use("/api/messages", messageRoutes);
+app.use("/api/chat/conversations", require("./routes/messages"));
 app.use("/api/chat", chatRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/hosts", hostRoutes);
