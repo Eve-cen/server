@@ -12,8 +12,8 @@ router.get("/conversations", auth, async (req, res) => {
     const conversations = await Conversation.find({
       $or: [{ host: userId }, { guest: userId }],
     })
-      .populate("host", "firstName lastName displayName profileImage")
-      .populate("guest", "firstName lastName displayName profileImage")
+      .populate("host", "firstName lastName displayName profileImage name email")
+      .populate("guest", "firstName lastName displayName profileImage name email")
       .populate("property", "title coverImage")
       .sort({ lastMessageAt: -1 });
 
@@ -34,8 +34,8 @@ router.get("/property/:propertyId", auth, async (req, res) => {
       property: propertyId,
       guest: guestId,
     })
-      .populate("host", "firstName lastName displayName profileImage")
-      .populate("guest", "firstName lastName displayName profileImage")
+      .populate("host", "firstName lastName displayName profileImage name email")
+      .populate("guest", "firstName lastName displayName profileImage name email")
       .populate("property", "title coverImage");
 
     if (!conversation) {
@@ -50,8 +50,8 @@ router.get("/property/:propertyId", auth, async (req, res) => {
       });
       await conversation.save();
       await conversation.populate([
-        { path: "host", select: "firstName lastName displayName profileImage" },
-        { path: "guest", select: "firstName lastName displayName profileImage" },
+        { path: "host", select: "firstName lastName displayName profileImage name email" },
+        { path: "guest", select: "firstName lastName displayName profileImage name email" },
         { path: "property", select: "title coverImage" },
       ]);
     }
@@ -73,7 +73,7 @@ router.post("/enquiry", auth, async (req, res) => {
     const { propertyId, checkIn, checkOut, guests, durationType, totalPrice, message } = req.body;
     const guestId = req.user.id;
 
-    const property = await Property.findById(propertyId).populate("host", "firstName lastName displayName profileImage");
+    const property = await Property.findById(propertyId).populate("host", "firstName lastName displayName profileImage name email");
     if (!property) return res.status(404).json({ error: "Property not found" });
 
     // Find existing conversation or create new one
@@ -124,8 +124,8 @@ router.get("/:conversationId", auth, async (req, res) => {
     const userId = req.user.id;
 
     const conversation = await Conversation.findById(conversationId)
-      .populate("host", "firstName lastName displayName profileImage")
-      .populate("guest", "firstName lastName displayName profileImage")
+      .populate("host", "firstName lastName displayName profileImage name email")
+      .populate("guest", "firstName lastName displayName profileImage name email")
       .populate("property", "title coverImage location");
 
     if (!conversation) return res.status(404).json({ error: "Conversation not found" });
