@@ -71,4 +71,33 @@ router.get("/:id/can-review", auth, async (req, res) => {
   }
 });
 
+// GET: Reviews left by the current user (customer)
+router.get("/my-reviews", auth, async (req, res) => {
+  try {
+    const reviews = await Review.find({ guest: req.user.id })
+      .populate("property", "title coverImage location")
+      .populate("booking", "checkIn checkOut")
+      .sort({ createdAt: -1 });
+    res.json(reviews);
+  } catch (err) {
+    console.error("Get my reviews error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET: Reviews received by host on their properties
+router.get("/host-reviews", auth, async (req, res) => {
+  try {
+    const reviews = await Review.find({ host: req.user.id })
+      .populate("property", "title coverImage")
+      .populate("guest", "firstName lastName displayName profileImage")
+      .populate("booking", "checkIn checkOut")
+      .sort({ createdAt: -1 });
+    res.json(reviews);
+  } catch (err) {
+    console.error("Get host reviews error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 module.exports = router;
