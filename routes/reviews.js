@@ -13,16 +13,14 @@ router.post("/", auth, async (req, res) => {
     const booking = await Booking.findOne({
       _id: bookingId,
       guest: req.user.id,
-      status: "confirmed",
-      checkOut: { $lt: new Date() }, // ✅ AFTER checkout
-      completed: true,
+      status: { $in: ["confirmed", "completed"] },
+      checkOut: { $lt: new Date() },
       reviewed: false,
     });
 
     if (!booking) {
       return res.status(403).json({
-        error:
-          "You can only review confirmed, completed, and not-yet-reviewed bookings after checkout",
+        error: "You can only review bookings after checkout that have not been reviewed yet.",
       });
     }
 
