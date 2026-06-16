@@ -1,4 +1,6 @@
 const express = require("express");
+const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
 const { adminAuth } = require("../middleware/auth");
 const User = require("../models/User");
 const Booking = require("../models/Booking");
@@ -6,6 +8,47 @@ const Property = require("../models/Property");
 const Report = require("../models/Report");
 const Payment = require("../models/Payment");
 const router = express.Router();
+
+// ─── Admin login (separate from regular user login) ──────────────────────────
+router.post("/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email and password are required" });
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user || !user.isAdmin) {
+      return res.status(403).json({ error: "Invalid admin credentials" });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(403).json({ error: "Invalid admin credentials" });
+    }
+
+    const token = jwt.sign(
+      { id: user._id, isAdmin: true },
+      process.env.JWT_SECRET,
+      { expiresIn: "8h" }
+    );
+
+    res.json({
+      success: true,
+      token,
+      user: {
+        _id: user._id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        isAdmin: user.isAdmin,
+      },
+    });
+  } catch (err) {
+    console.error("Admin login error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
 
 // All admin routes require adminAuth
 router.use(adminAuth);
