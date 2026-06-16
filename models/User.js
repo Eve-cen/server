@@ -101,6 +101,7 @@ const userSchema = new mongoose.Schema(
     bio: String,
     paymentMethods: [paymentMethodSchema],
     payoutMethods: [payoutMethodSchema],
+    savedProperties: [{ type: mongoose.Schema.Types.ObjectId, ref: "Property" }],
     payoutHistory: [payoutHistorySchema],
     privacySettings: { type: privacySettingsSchema, default: () => ({}) },
     businessVerified: { type: Boolean, default: false },

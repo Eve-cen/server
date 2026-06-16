@@ -526,6 +526,26 @@ router.get("/search", async (req, res) => {
   }
 });
 
+// ✅ Get all saved properties for the logged-in user
+router.get("/saved/me", auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).populate({
+      path: "savedProperties",
+      populate: { path: "category", select: "name" },
+    });
+
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    res.json({
+      success: true,
+      properties: user.savedProperties || [],
+    });
+  } catch (err) {
+    console.error("Error fetching saved properties:", err);
+    res.status(500).json({ error: "Server error", details: err.message });
+  }
+});
+
 // ✅ Get authenticated user's own listings (incl. unpublished)
 router.get("/me", auth, async (req, res) => {
   try {
@@ -1103,6 +1123,57 @@ router.delete("/:id/images", auth, async (req, res) => {
     });
   } catch (err) {
     console.error("Error deleting images:", err);
+    res.status(500).json({ error: "Server error", details: err.message });
+  }
+});
+
+// ✅ Toggle save/unsave a property
+router.post("/:id/save", auth, async (req, res) => {
+  try {
+    const property = await Property.findById(req.params.id);
+    if (!property) return res.status(404).json({ error: "Property not found" });
+
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const alreadySaved = user.savedProperties?.some(
+      (id) => id.toString() === req.params.id
+    );
+
+    if (alreadySaved) {
+      user.savedProperties = user.savedProperties.filter(
+        (id) => id.toString() !== req.params.id
+      );
+    } else {
+      user.savedProperties = [...(user.savedProperties || []), req.params.id];
+    }
+
+    await user.save();
+
+    res.json({
+      success: true,
+      saved: !alreadySaved,
+      savedProperties: user.savedProperties,
+    });
+  } catch (err) {
+    console.error("Error toggling saved property:", err);
+    res.status(500).json({ error: "Server error", details: err.message });
+  }
+});
+
+// ✅ Check if a specific property is saved by the logged-in user
+router.get("/:id/is-saved", auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select("savedProperties");
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const isSaved = user.savedProperties?.some(
+      (id) => id.toString() === req.params.id
+    );
+
+    res.json({ success: true, isSaved: !!isSaved });
+  } catch (err) {
+    console.error("Error checking saved status:", err);
     res.status(500).json({ error: "Server error", details: err.message });
   }
 });
