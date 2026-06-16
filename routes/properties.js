@@ -575,6 +575,97 @@ router.get("/me", auth, async (req, res) => {
   }
 });
 
+// ✅ Host analytics — revenue, bookings, occupancy for the logged-in host
+router.get("/analytics/me", auth, async (req, res) => {
+  try {
+    const Booking = require("../models/Booking");
+    const hostId = req.user.id;
+
+    const properties = await Property.find({ host: hostId }).select(
+      "_id title coverImage"
+    );
+    const propertyIds = properties.map((p) => p._id);
+
+    const bookings = await Booking.find({
+      property: { $in: propertyIds },
+    }).select("property totalPrice hostAmount status checkIn checkOut createdAt");
+
+    const completedBookings = bookings.filter((b) =>
+      ["confirmed", "completed"].includes(b.status)
+    );
+
+    const totalRevenue = completedBookings.reduce(
+      (sum, b) => sum + (b.hostAmount || b.totalPrice * 0.9 || 0),
+      0
+    );
+    const totalBookings = completedBookings.length;
+    const pendingBookings = bookings.filter((b) => b.status === "pending").length;
+    const cancelledBookings = bookings.filter((b) =>
+      ["declined", "cancelled"].includes(b.status)
+    ).length;
+    const avgBookingValue = totalBookings > 0
+      ? totalRevenue / totalBookings
+      : 0;
+
+    // Revenue per listing
+    const listingStats = properties.map((property) => {
+      const propertyBookings = completedBookings.filter(
+        (b) => b.property.toString() === property._id.toString()
+      );
+      const revenue = propertyBookings.reduce(
+        (sum, b) => sum + (b.hostAmount || b.totalPrice * 0.9 || 0),
+        0
+      );
+      return {
+        propertyId: property._id,
+        title: property.title,
+        coverImage: property.coverImage,
+        bookings: propertyBookings.length,
+        revenue,
+      };
+    }).sort((a, b) => b.revenue - a.revenue);
+
+    // Monthly trend — last 6 months
+    const now = new Date();
+    const monthlyData = [];
+    for (let i = 5; i >= 0; i--) {
+      const monthDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthLabel = monthDate.toLocaleDateString("en-GB", { month: "short" });
+      const monthBookings = completedBookings.filter((b) => {
+        const bDate = new Date(b.createdAt);
+        return (
+          bDate.getMonth() === monthDate.getMonth() &&
+          bDate.getFullYear() === monthDate.getFullYear()
+        );
+      });
+      const monthRevenue = monthBookings.reduce(
+        (sum, b) => sum + (b.hostAmount || b.totalPrice * 0.9 || 0),
+        0
+      );
+      monthlyData.push({
+        month: monthLabel,
+        bookings: monthBookings.length,
+        revenue: Math.round(monthRevenue),
+      });
+    }
+
+    res.json({
+      success: true,
+      totalRevenue: Math.round(totalRevenue),
+      totalBookings,
+      pendingBookings,
+      cancelledBookings,
+      avgBookingValue: Math.round(avgBookingValue),
+      totalListings: properties.length,
+      listingStats,
+      monthlyData,
+    });
+  } catch (err) {
+    console.error("Error fetching host analytics:", err);
+    res.status(500).json({ error: "Server error", details: err.message });
+  }
+});
+
 // ✅ Get single property
 router.get("/:id", async (req, res) => {
   const propertyId = req.params.id;

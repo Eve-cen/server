@@ -1,88 +1,265 @@
 const mongoose = require("mongoose");
-const Category = require("../models/Category");
+require("dotenv").config({ path: "./config.env" });
 
-const MONGO_URI =
-  "mongodb+srv://vencomeltd_db_user:DevDan12345@vencome.6yfcha8.mongodb.net/?appName=Vencome";
+const categorySchema = new mongoose.Schema(
+  {
+    name: String,
+    description: String,
+    image: String,
+    subcategories: [
+      {
+        name: String,
+        description: String,
+        image: String,
+      },
+    ],
+  },
+  { timestamps: true }
+);
 
-const imageMap = {
-  // Health & Therapy
-  Osteopathy:
-    "https://images.pexels.com/photos/5449112/pexels-photo-5449112.jpeg",
-  Physiotherapy:
-    "https://images.pexels.com/photos/4506109/pexels-photo-4506109.jpeg",
-  "Sports Therapy":
-    "https://images.pexels.com/photos/4506110/pexels-photo-4506110.jpeg",
-  "Hands on Care":
-    "https://images.pexels.com/photos/3959485/pexels-photo-3959485.jpeg",
-  Aesthetics:
-    "https://images.pexels.com/photos/3985338/pexels-photo-3985338.jpeg",
+const Category = mongoose.model("Category", categorySchema);
 
-  // Events & Celebrations
-  Birthdays:
-    "https://images.pexels.com/photos/1543762/pexels-photo-1543762.jpeg",
-  "Social Event Spaces":
-    "https://images.pexels.com/photos/2774556/pexels-photo-2774556.jpeg",
-  "Corporate Event Rooms":
-    "https://images.pexels.com/photos/2182973/pexels-photo-2182973.jpeg",
-  "Wedding & Banquet Halls":
-    "https://images.pexels.com/photos/2608517/pexels-photo-2608517.jpeg",
-  "Creative & Cultural Spaces":
-    "https://images.pexels.com/photos/236748/pexels-photo-236748.jpeg",
-  "Wellness & Lifestyle Event Spaces":
-    "https://images.pexels.com/photos/1051838/pexels-photo-1051838.jpeg",
-  "Dining & Hospitality Event Rooms":
-    "https://images.pexels.com/photos/1036857/pexels-photo-1036857.jpeg",
-  "Entertainment & Party Venues":
-    "https://images.pexels.com/photos/1190297/pexels-photo-1190297.jpeg",
-  "Hybrid / Multi-Purpose Spaces":
-    "https://images.pexels.com/photos/260689/pexels-photo-260689.jpeg",
+mongoose
+  .connect(process.env.DATABASE)
+  .then(async () => {
+    console.log("Connected to:", mongoose.connection.db.databaseName);
 
-  // Fitness & Studio
-  "Reformer pilates rooms":
-    "https://images.pexels.com/photos/4662363/pexels-photo-4662363.jpeg",
-  Yoga: "https://images.pexels.com/photos/3822621/pexels-photo-3822621.jpeg",
-  Zumba: "https://images.pexels.com/photos/868483/pexels-photo-868483.jpeg",
-  Kickboxing:
-    "https://images.pexels.com/photos/4761713/pexels-photo-4761713.jpeg",
-};
+    const categories = [
+      {
+        name: "Office Space",
+        description: "Private suites, executive offices, and corporate floors.",
+        image:
+          "https://images.unsplash.com/photo-1497366811353-6870744d04b2?w=400&q=80",
+        subcategories: [
+          {
+            name: "Private Office",
+            description: "Fully private office space",
+            image: "",
+          },
+          {
+            name: "Executive Suite",
+            description: "Premium executive offices",
+            image: "",
+          },
+          {
+            name: "Serviced Office",
+            description: "Fully serviced office space",
+            image: "",
+          },
+          {
+            name: "Virtual Office",
+            description: "Virtual office address",
+            image: "",
+          },
+        ],
+      },
+      {
+        name: "Co-working & Flex Space",
+        description: "Flex desks, day passes, and shared work environments.",
+        image:
+          "https://images.unsplash.com/photo-1497366216548-37526070297c?w=400&q=80",
+        subcategories: [
+          { name: "Hot Desk", description: "Flexible hot desking", image: "" },
+          {
+            name: "Dedicated Desk",
+            description: "Your own permanent desk",
+            image: "",
+          },
+          { name: "Team Pod", description: "Private area for teams", image: "" },
+        ],
+      },
+      {
+        name: "Meeting & Conference Rooms",
+        description: "Boardrooms, training rooms, and conference spaces.",
+        image:
+          "https://images.unsplash.com/photo-1517502884422-41eaead166d4?w=400&q=80",
+        subcategories: [
+          { name: "Boardroom", description: "Professional boardroom", image: "" },
+          {
+            name: "Training Room",
+            description: "Equipped training space",
+            image: "",
+          },
+          {
+            name: "Interview Room",
+            description: "Private interview space",
+            image: "",
+          },
+          {
+            name: "Video Conference Suite",
+            description: "AV-equipped suite",
+            image: "",
+          },
+        ],
+      },
+      {
+        name: "Event Venues",
+        description:
+          "Corporate event halls, rooftop terraces, and exhibition spaces.",
+        image:
+          "https://images.unsplash.com/photo-1519167758481-83f550bb49b3?w=400&q=80",
+        subcategories: [
+          {
+            name: "Corporate Event Hall",
+            description: "Large event space",
+            image: "",
+          },
+          {
+            name: "Rooftop Terrace",
+            description: "Outdoor rooftop venue",
+            image: "",
+          },
+          {
+            name: "Exhibition Hall",
+            description: "Exhibition and trade space",
+            image: "",
+          },
+        ],
+      },
+      {
+        name: "Retail & Showroom",
+        description: "Pop-up retail units, showrooms, and market stalls.",
+        image:
+          "https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=400&q=80",
+        subcategories: [
+          {
+            name: "Pop-up Retail",
+            description: "Temporary retail unit",
+            image: "",
+          },
+          { name: "Showroom", description: "Product display space", image: "" },
+          { name: "Market Stall", description: "Indoor market stall", image: "" },
+        ],
+      },
+      {
+        name: "Industrial & Warehouse",
+        description: "Warehouses, storage units, and fulfilment centres.",
+        image:
+          "https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=400&q=80",
+        subcategories: [
+          { name: "Warehouse", description: "Large warehouse space", image: "" },
+          { name: "Storage Unit", description: "Secure storage", image: "" },
+          {
+            name: "Fulfilment Centre",
+            description: "Logistics and fulfilment",
+            image: "",
+          },
+        ],
+      },
+      {
+        name: "Studio Space",
+        description:
+          "Photography studios, film sets, music studios, and art studios.",
+        image:
+          "https://images.unsplash.com/photo-1598300042247-d088f8ab3a91?w=400&q=80",
+        subcategories: [
+          {
+            name: "Photography Studio",
+            description: "Professional photo studio",
+            image: "",
+          },
+          { name: "Film Set", description: "Film and video production", image: "" },
+          { name: "Music Studio", description: "Recording studio", image: "" },
+          { name: "Art Studio", description: "Creative art space", image: "" },
+        ],
+      },
+      {
+        name: "Hospitality & Leisure",
+        description:
+          "Private dining rooms, sports facilities, and wellness studios.",
+        image:
+          "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=400&q=80",
+        subcategories: [
+          {
+            name: "Private Dining Room",
+            description: "Exclusive dining space",
+            image: "",
+          },
+          {
+            name: "Sports Facility",
+            description: "Sports and fitness space",
+            image: "",
+          },
+          {
+            name: "Wellness Studio",
+            description: "Health and wellness space",
+            image: "",
+          },
+        ],
+      },
+      {
+        name: "Medical & Clinical",
+        description: "Consulting rooms, therapy rooms, and clinical suites.",
+        image:
+          "https://images.unsplash.com/photo-1538108149393-fbbd81895907?w=400&q=80",
+        subcategories: [
+          {
+            name: "Consulting Room",
+            description: "Private consulting space",
+            image: "",
+          },
+          {
+            name: "Therapy Room",
+            description: "Therapy and treatment room",
+            image: "",
+          },
+          {
+            name: "Clinical Suite",
+            description: "Full clinical facilities",
+            image: "",
+          },
+        ],
+      },
+      {
+        name: "Educational & Training",
+        description: "Classrooms, lecture theatres, and seminar rooms.",
+        image:
+          "https://images.unsplash.com/photo-1580582932707-520aed937b7b?w=400&q=80",
+        subcategories: [
+          {
+            name: "Classroom",
+            description: "Traditional classroom setup",
+            image: "",
+          },
+          {
+            name: "Lecture Theatre",
+            description: "Large lecture space",
+            image: "",
+          },
+          {
+            name: "Seminar Room",
+            description: "Small group seminar space",
+            image: "",
+          },
+        ],
+      },
+      {
+        name: "Other / Custom",
+        description: "Any commercial space not fitting a standard category.",
+        image:
+          "https://images.unsplash.com/photo-1497366216548-37526070297c?w=400&q=80",
+        subcategories: [],
+      },
+    ];
 
-const run = async () => {
-  try {
-    await mongoose.connect(MONGO_URI);
-    console.log("✅ Connected to DB");
+    const existingNames = (await Category.find({}, "name")).map((c) => c.name);
+    const newCategories = categories.filter((c) => !existingNames.includes(c.name));
+    console.log(
+      `Found ${existingNames.length} existing categories, adding ${newCategories.length} new ones`
+    );
 
-    const categories = await Category.find({});
-    let totalUpdated = 0;
-
-    for (const category of categories) {
-      let categoryModified = false;
-
-      category.subcategories.forEach((sub) => {
-        const mappedImage = imageMap[sub.name];
-
-        if (mappedImage) {
-          sub.image = mappedImage;
-          categoryModified = true;
-          console.log(`  Updating: [${category.name} -> ${sub.name}]`);
-        } else {
-          console.warn(`  ⚠️ No image found in map for: "${sub.name}"`);
-        }
-      });
-
-      if (categoryModified) {
-        await category.save();
-        totalUpdated++;
-      }
+    if (newCategories.length === 0) {
+      console.log("No new categories to add");
+      await mongoose.disconnect();
+      process.exit(0);
     }
 
-    console.log(
-      `\n🎉 Done. ${totalUpdated} categories saved with new subcategory images.`
-    );
-    process.exit(0);
-  } catch (err) {
-    console.error("❌ Migration error:", err);
-    process.exit(1);
-  }
-};
+    const inserted = await Category.insertMany(newCategories);
 
-run();
+    console.log(`${inserted.length} categories seeded successfully`);
+    mongoose.disconnect();
+  })
+  .catch((err) => {
+    console.error("Error:", err.message);
+    process.exit(1);
+  });
