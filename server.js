@@ -47,6 +47,8 @@ const allowedOrigins = [
   "http://localhost:5173",
   "https://vencome.netlify.app",
   "https://client-inky-nu-61.vercel.app",
+  "https://vencome.com",
+  "https://www.vencome.com",
 ];
 
 const io = socketIo(server, {
