@@ -181,6 +181,7 @@ app.use("/api/geocode", geocodeRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/verification", verificationRoutes);
 app.use("/api/drafts", draftRoutes);
+app.use("/api/admin", require("./routes/admin"));
 app.use("/uploads", express.static("uploads"));
 
 const PORT = process.env.PORT || 5000;
