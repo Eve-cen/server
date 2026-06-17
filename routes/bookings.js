@@ -483,6 +483,20 @@ router.get("/past", auth, async (req, res) => {
   res.json(bookings);
 });
 
+// GET: pending bookings count for the logged-in user (host or guest)
+router.get("/pending-count", auth, async (req, res) => {
+  try {
+    const count = await Booking.countDocuments({
+      $or: [{ host: req.user.id }, { guest: req.user.id }],
+      status: "pending",
+    });
+    res.json({ success: true, pendingCount: count });
+  } catch (err) {
+    console.error("Error fetching pending bookings count:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 router.get("/:id", auth, async (req, res) => {
   try {
     const booking = await Booking.findById(req.params.id);
