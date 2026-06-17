@@ -24,6 +24,31 @@ router.get("/conversations", auth, async (req, res) => {
   }
 });
 
+// GET: unread message count for the logged-in user across all conversations
+router.get("/unread-count", auth, async (req, res) => {
+  try {
+    const Message = require("../models/Message");
+    const Conversation = require("../models/Conversation");
+
+    const conversations = await Conversation.find({
+      $or: [{ host: req.user.id }, { guest: req.user.id }],
+    }).select("_id");
+
+    const conversationIds = conversations.map((c) => c._id);
+
+    const unreadCount = await Message.countDocuments({
+      conversation: { $in: conversationIds },
+      sender: { $ne: req.user.id },
+      read: false,
+    });
+
+    res.json({ success: true, unreadCount });
+  } catch (err) {
+    console.error("Error fetching unread count:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 // GET: Get or create conversation for a property
 router.get("/property/:propertyId", auth, async (req, res) => {
   try {
