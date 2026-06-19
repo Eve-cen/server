@@ -144,6 +144,15 @@ router.post(
       }
 
       const { title, description, category, subcategory } = req.body;
+      let categoriesArray = [];
+      let subcategoriesArray = [];
+      try {
+        categoriesArray = req.body.categories ? JSON.parse(req.body.categories) : [];
+        subcategoriesArray = req.body.subcategories ? JSON.parse(req.body.subcategories) : [];
+      } catch (e) {
+        categoriesArray = [];
+        subcategoriesArray = [];
+      }
       const availability = req.body.availability || "all";
       const host = req.user.id;
 
@@ -169,6 +178,18 @@ router.post(
             ...(req.files?.leaseFile || []), // ✅ NEW: Added lease file cleanup
           ]);
           return res.status(404).json({ error: "Category not found" });
+        }
+      }
+
+      if (categoriesArray.length > 0) {
+        const foundCategories = await Category.find({ _id: { $in: categoriesArray } });
+        if (foundCategories.length !== categoriesArray.length) {
+          cleanupTempFiles([
+            ...(req.files?.images || []),
+            ...(req.files?.cqcDocuments || []),
+            ...(req.files?.leaseFile || []),
+          ]);
+          return res.status(400).json({ error: "One or more category IDs are invalid" });
         }
       }
 
@@ -320,6 +341,8 @@ router.post(
         host,
         category: category && category.trim() ? category : undefined,
         subcategory: subcategory ? JSON.parse(subcategory) : [],
+        categories: categoriesArray,
+        subcategories: subcategoriesArray,
         availability,
         timeBlocks,
         blockedDates: blockedDates.map((d) => ({
@@ -484,11 +507,18 @@ router.get("/search", async (req, res) => {
       const categoryExists = await Category.findById(category);
       if (!categoryExists)
         return res.status(400).json({ error: "Invalid category ID" });
-      query.category = category;
+      query.$or = [
+        ...(query.$or || []),
+        { category: category },
+        { categories: category },
+      ];
     }
 
     if (subcategory) {
-      query.subcategory = subcategory;
+      query.$and = [
+        ...(query.$and || []),
+        { $or: [{ subcategory: subcategory }, { subcategories: subcategory }] },
+      ];
     }
 
     if (minPrice || maxPrice) {
