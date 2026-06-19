@@ -340,7 +340,7 @@ router.post(
         bookingSettings,
         host,
         category: category && category.trim() ? category : undefined,
-        subcategory: subcategory ? JSON.parse(subcategory) : [],
+        subcategory: typeof subcategory === "string" ? subcategory : "",
         categories: categoriesArray,
         subcategories: subcategoriesArray,
         availability,
