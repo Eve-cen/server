@@ -84,6 +84,8 @@ const propertySchema = new mongoose.Schema(
     host: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     category: { type: mongoose.Schema.Types.ObjectId, ref: "Category" },
     subcategory: { type: String, default: "" },
+    categories: [{ type: mongoose.Schema.Types.ObjectId, ref: "Category" }],
+    subcategories: [{ type: String }],
     rating: { type: Number, default: 0 },
     reviewNumber: { type: Number, default: 0 },
     reviews: [{ type: mongoose.Schema.Types.ObjectId, ref: "Review" }],
