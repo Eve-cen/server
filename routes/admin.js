@@ -50,6 +50,21 @@ router.post("/login", async (req, res) => {
   }
 });
 
+router.post("/clear-property-cache", async (req, res) => {
+  try {
+    const { propertyId, secret } = req.body;
+    if (secret !== "vencome-cache-clear-2026") {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    const { client } = require("../utils/redisClient");
+    const deleted = await client.del(`property:${propertyId}`);
+    res.json({ success: true, deleted });
+  } catch (err) {
+    console.error("Error clearing property cache:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // All admin routes require adminAuth
 router.use(adminAuth);
 
