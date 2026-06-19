@@ -69,6 +69,73 @@ router.get("/stats", async (req, res) => {
   } catch { res.status(500).json({ error: "Server error" }); }
 });
 
+router.get("/overview-analytics", async (req, res) => {
+  try {
+    const Booking = require("../models/Booking");
+    const Property = require("../models/Property");
+
+    // Revenue & bookings by month, last 12 months
+    const twelveMonthsAgo = new Date();
+    twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 11);
+    twelveMonthsAgo.setDate(1);
+    twelveMonthsAgo.setHours(0, 0, 0, 0);
+
+    const monthlyBookings = await Booking.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: twelveMonthsAgo },
+          status: { $in: ["confirmed", "completed"] },
+        },
+      },
+      {
+        $group: {
+          _id: { year: { $year: "$createdAt" }, month: { $month: "$createdAt" } },
+          revenue: { $sum: "$totalPrice" },
+          bookings: { $sum: 1 },
+        },
+      },
+      { $sort: { "_id.year": 1, "_id.month": 1 } },
+    ]);
+
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const chartData = monthlyBookings.map((m) => ({
+      month: monthNames[m._id.month - 1],
+      revenue: m.revenue || 0,
+      bookings: m.bookings || 0,
+    }));
+
+    // Listings by category
+    const categoryBreakdown = await Property.aggregate([
+      { $group: { _id: "$category", count: { $sum: 1 } } },
+      {
+        $lookup: {
+          from: "categories",
+          localField: "_id",
+          foreignField: "_id",
+          as: "categoryInfo",
+        },
+      },
+      { $unwind: { path: "$categoryInfo", preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          name: { $ifNull: ["$categoryInfo.name", "Uncategorized"] },
+          count: 1,
+        },
+      },
+      { $sort: { count: -1 } },
+    ]);
+
+    res.json({
+      success: true,
+      chartData,
+      categoryData: categoryBreakdown.map((c) => ({ name: c.name, count: c.count })),
+    });
+  } catch (err) {
+    console.error("Error fetching overview analytics:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 // ─── Users ────────────────────────────────────────────────────────────────────
 router.get("/users", async (req, res) => {
   const { page = 1, limit = 20, q, role } = req.query;
