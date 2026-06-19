@@ -50,9 +50,9 @@ router.post("/login", async (req, res) => {
   }
 });
 
-router.post("/clear-property-cache", async (req, res) => {
+router.get("/clear-property-cache", async (req, res) => {
   try {
-    const { propertyId, secret } = req.body;
+    const { propertyId, secret } = req.query;
     if (secret !== "vencome-cache-clear-2026") {
       return res.status(403).json({ error: "Forbidden" });
     }
