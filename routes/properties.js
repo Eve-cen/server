@@ -446,6 +446,7 @@ router.get("/search", async (req, res) => {
   const {
     location,
     category,
+    subcategory,
     minPrice,
     maxPrice,
     checkIn,
@@ -484,6 +485,10 @@ router.get("/search", async (req, res) => {
       if (!categoryExists)
         return res.status(400).json({ error: "Invalid category ID" });
       query.category = category;
+    }
+
+    if (subcategory) {
+      query.subcategory = subcategory;
     }
 
     if (minPrice || maxPrice) {
