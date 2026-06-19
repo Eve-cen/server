@@ -444,6 +444,7 @@ router.get("/", async (req, res) => {
       Property.find()
         .populate("host", "firstName lastName displayName email")
         .populate("category", "name")
+        .populate("categories", "name")
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit),
@@ -548,6 +549,7 @@ router.get("/search", async (req, res) => {
     const properties = await Property.find(query)
       .populate("host", "firstName lastName displayName email")
       .populate("category", "name")
+      .populate("categories", "name")
       .sort({ createdAt: -1 });
 
     const responsePayload = { count: properties.length, properties };
@@ -590,6 +592,7 @@ router.get("/me", auth, async (req, res) => {
     const [properties, total] = await Promise.all([
       Property.find({ host: req.user.id })
         .populate("category", "name")
+        .populate("categories", "name")
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit),
@@ -718,6 +721,7 @@ router.get("/:id", async (req, res) => {
     const property = await Property.findById(propertyId)
       .populate("host", "firstName lastName displayName email")
       .populate("category", "name")
+      .populate("categories", "name")
       .populate({
         path: "reviews",
         populate: {
