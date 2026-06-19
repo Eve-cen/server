@@ -35,6 +35,39 @@ router.get("/", async (req, res) => {
   }
 });
 
+router.get("/with-counts", async (req, res) => {
+  try {
+    const Property = require("../models/Property");
+    const categories = await Category.find();
+
+    const categoriesWithCounts = await Promise.all(
+      categories.map(async (cat) => {
+        const count = await Property.countDocuments({
+          $or: [
+            { category: cat._id },
+            { categories: cat._id },
+          ],
+          isActive: true,
+        });
+        return {
+          _id: cat._id,
+          name: cat.name,
+          description: cat.description,
+          image: cat.image,
+          subcategories: cat.subcategories,
+          listingCount: count,
+          hasListings: count > 0,
+        };
+      })
+    );
+
+    res.json(categoriesWithCounts);
+  } catch (err) {
+    console.error("Error fetching categories with counts:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 // ✅ Get one category and all its properties
 router.get("/:id", async (req, res) => {
   try {
