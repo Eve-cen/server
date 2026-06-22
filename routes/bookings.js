@@ -164,6 +164,62 @@ router.post(
         }
       }
 
+      // 5b. Check open days — if host has set specific days,
+      // all booking days must be within those days
+      const availOpenDays = property.availability?.openDays || [];
+      if (availOpenDays.length > 0) {
+        const DAY_MAP = {
+          sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
+          thursday: 4, friday: 5, saturday: 6,
+        };
+        const allowedDayNumbers = availOpenDays.map(
+          (d) => DAY_MAP[d.toLowerCase()]
+        ).filter((d) => d !== undefined);
+
+        if (allowedDayNumbers.length > 0) {
+          const bookedDays = [];
+          const cur = new Date(checkInDate);
+          while (cur < checkOutDate) {
+            bookedDays.push(cur.getDay());
+            cur.setDate(cur.getDate() + 1);
+          }
+          const hasClosedDay = bookedDays.some(
+            (d) => !allowedDayNumbers.includes(d)
+          );
+          if (hasClosedDay) {
+            return res.status(409).json({
+              error: "One or more selected days are outside the space's open days",
+            });
+          }
+        }
+      }
+
+      // 5c. Check open hours — if host has set openTime/closeTime,
+      // booking start and end must fall within those hours
+      const openTime = property.availability?.openTime;
+      const closeTime = property.availability?.closeTime;
+
+      if (openTime && closeTime) {
+        const [openH, openM] = openTime.split(":").map(Number);
+        const [closeH, closeM] = closeTime.split(":").map(Number);
+
+        const checkInH = checkInDate.getUTCHours();
+        const checkInMin = checkInDate.getUTCMinutes();
+        const checkOutH = checkOutDate.getUTCHours();
+        const checkOutMin = checkOutDate.getUTCMinutes();
+
+        const checkInMinutes = checkInH * 60 + checkInMin;
+        const checkOutMinutes = checkOutH * 60 + checkOutMin;
+        const openMinutes = openH * 60 + openM;
+        const closeMinutes = closeH * 60 + closeM;
+
+        if (checkInMinutes < openMinutes || checkOutMinutes > closeMinutes) {
+          return res.status(409).json({
+            error: `This space is only available between ${openTime} and ${closeTime}`,
+          });
+        }
+      }
+
       // 6. Calculate total price
       let totalPrice = 0;
       let totalNights = 0;
