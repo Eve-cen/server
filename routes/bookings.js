@@ -51,7 +51,7 @@ router.post(
   },
   async (req, res) => {
     const extras = JSON.parse(req.body.extras || "[]");
-    const { propertyId, checkIn, checkOut, guests } = req.body;
+    const { propertyId, checkIn, checkOut, guests, pricingUnit } = req.body;
     const guestId = req.user.id;
 
     // 1. Find property
@@ -235,14 +235,19 @@ router.post(
       const hourlyPrice = Number(property.pricing.hourlyPrice) ||
                           Number(property.pricing.hourly) || 0;
 
-      // Auto-detect pricing type if not explicitly set
+      // Use explicit pricingUnit from frontend if provided,
+      // otherwise fall back to auto-detection
       const effectivePricingType = (() => {
+        if (pricingUnit === "hour") return "HOURLY";
+        if (pricingUnit === "day") return "DAILY";
+        if (pricingUnit === "week") return "WEEKLY";
+        if (pricingUnit === "month") return "MONTHLY";
+        if (pricingUnit === "year") return "ANNUAL";
+        // Fallback: auto-detect from property pricing config
         if (property.pricing.pricingType === "HOURLY") return "HOURLY";
         if (property.pricing.pricingType === "DAILY") {
-          // If daily price exists use DAILY, else fall back to HOURLY
           return dailyPrice > 0 ? "DAILY" : hourlyPrice > 0 ? "HOURLY" : "DAILY";
         }
-        // No pricingType set — detect from available prices
         if (dailyPrice > 0) return "DAILY";
         if (hourlyPrice > 0) return "HOURLY";
         return "DAILY";
