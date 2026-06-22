@@ -33,7 +33,7 @@ router.post("/create-checkout-session", auth, async (req, res) => {
       line_items: [
         {
           price_data: {
-            currency: "usd",
+            currency: "gbp",
             product_data: {
               name: booking.property.title,
               images: imageUrl ? [imageUrl] : undefined,

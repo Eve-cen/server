@@ -290,7 +290,7 @@ router.post(
       // 12. Send confirmation email
       sendEmail({
         to: user.email,
-        subject: "Your booking is confirmed 🎉",
+        subject: booking.status === "confirmed" ? "Your booking is confirmed 🎉" : "Your booking request has been received",
         html: `
           <div style="font-family: 'Manrope', Arial, sans-serif; background-color: #f4f4f7; padding: 20px;">
             <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
@@ -298,9 +298,14 @@ router.post(
                 <img src="https://vencome.netlify.app/logo-blue.png" alt="VenCome" style="max-width: 150px;">
               </div>
               <div style="padding: 30px; color: #333;">
-                <h2 style="color: #305CDE; text-align: center; margin-top: 0;">Booking Confirmed 🎉</h2>
+                <h2 style="color: #305CDE; text-align: center; margin-top: 0;">
+                  ${booking.status === "confirmed" ? "Booking Confirmed 🎉" : "Booking Request Received 📋"}
+                </h2>
                 <p>Hi <strong>${displayName}</strong>,</p>
-                <p>Great news! Your booking has been <strong>successfully confirmed</strong>.</p>
+                <p>${booking.status === "confirmed" 
+                  ? "Great news! Your booking has been <strong>successfully confirmed</strong>."
+                  : "We've received your booking request. The host will review and respond within 24 hours."
+                }</p>
                 <div style="background-color: #f5f7ff; padding: 20px; margin: 25px 0; border-radius: 8px;">
                   <table width="100%" cellpadding="0" cellspacing="0" style="font-size: 14px;">
                     <tr>
@@ -333,14 +338,21 @@ router.post(
                     </tr>
                     <tr>
                       <td style="padding: 6px 0; color: #666;">Total to be paid</td>
-                      <td style="padding: 6px 0; text-align: right; font-weight: 600;">${
+                      <td style="padding: 6px 0; text-align: right; font-weight: 600;">£${
                         booking.totalPrice
                       }</td>
                     </tr>
                   </table>
                 </div>
+                ${booking.status === "pending" ? `
+                <div style="background-color: #FFF7ED; border: 1px solid #FED7AA; border-radius: 8px; padding: 16px; margin: 20px 0;">
+                  <p style="margin: 0; color: #92400E; font-size: 14px;">
+                    ⏳ <strong>Awaiting host approval</strong> — You will not be charged until the host approves your request.
+                  </p>
+                </div>
+                ` : ''}
                 <p>The host has been notified and may contact you with additional details before your stay.</p>
-                <p>You can pay for, view or manage your booking anytime from your VenCome dashboard.</p>
+                <p>You can view or manage your booking anytime from your VenCome dashboard.</p>
                 <p style="margin-bottom: 0;">We wish you a wonderful stay!</p>
               </div>
               <div style="background-color: #f0f0f0; padding: 20px; text-align: center; font-size: 12px; color: #888;">
