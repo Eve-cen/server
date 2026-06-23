@@ -413,6 +413,11 @@ router.post(
                 </div>
                 ` : ''}
                 <p>The host has been notified and may contact you with additional details before your stay.</p>
+                ${booking.status === "pending" ? `
+                <p>Your payment will only be captured once the host confirms your booking. If the host declines or does not respond within 24 hours, you will receive a full refund automatically.</p>
+                ` : `
+                <p>Your payment has been securely held in escrow and will be released to the host after your booking is completed. If anything changes, our team is here to help.</p>
+                `}
                 <p>You can view or manage your booking anytime from your VenCome dashboard.</p>
                 <p style="margin-bottom: 0;">We wish you a wonderful stay!</p>
               </div>
