@@ -468,6 +468,7 @@ router.get("/", async (req, res) => {
 // ✅ Search properties
 router.get("/search", async (req, res) => {
   const {
+    query: searchQuery,
     location,
     category,
     subcategory,
@@ -479,13 +480,14 @@ router.get("/search", async (req, res) => {
   } = req.query;
 
   const cacheKey = `search:${[
+    searchQuery || "",
     location || "",
     category || "",
     minPrice || "",
     maxPrice || "",
     checkIn || "",
     checkOut || "",
-    duration || "", // ← new
+    duration || "",
   ].join(":")}`;
 
   try {
@@ -496,11 +498,13 @@ router.get("/search", async (req, res) => {
 
     let query = {};
 
-    if (location) {
+    const searchTerm = searchQuery || location;
+
+    if (searchTerm) {
+      const regex = new RegExp(searchTerm, "i");
       query.$or = [
-        { "location.address": { $regex: new RegExp(location, "i") } },
-        { "location.city": { $regex: new RegExp(location, "i") } },
-        { "location.country": { $regex: new RegExp(location, "i") } },
+        { title: regex },
+        { description: regex },
       ];
     }
 
