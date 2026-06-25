@@ -1232,4 +1232,66 @@ router.get("/property/:propertyId/booked-dates", async (req, res) => {
   }
 });
 
+// Cancel a booking (customer)
+router.post("/:id/cancel", auth, async (req, res) => {
+  try {
+    const booking = await Booking.findById(req.params.id)
+      .populate("property", "title")
+      .populate("customer", "email firstName displayName")
+      .populate("host", "email firstName displayName");
+
+    if (!booking) return res.status(404).json({ error: "Booking not found" });
+
+    if (booking.customer._id.toString() !== req.user.id) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    if (!["pending", "confirmed"].includes(booking.status)) {
+      return res.status(400).json({ error: "This booking cannot be cancelled" });
+    }
+
+    booking.status = "cancelled";
+    await booking.save();
+
+    const customerName = booking.customer.displayName || booking.customer.firstName || "Customer";
+    const hostName = booking.host.displayName || booking.host.firstName || "Host";
+
+    // Email to customer
+    sendEmail({
+      to: booking.customer.email,
+      subject: "Your booking has been cancelled",
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+          <h2 style="color:#0A1628;">Booking Cancelled</h2>
+          <p>Hi ${customerName},</p>
+          <p>Your booking for <strong>${booking.property.title}</strong> has been cancelled.</p>
+          <p>Booking Ref: <strong>${booking._id.toString().slice(-8).toUpperCase()}</strong></p>
+          <p>If you paid, a refund will be processed within 5-10 business days.</p>
+          <p>The VenCome Team</p>
+        </div>
+      `,
+    });
+
+    // Email to host
+    sendEmail({
+      to: booking.host.email,
+      subject: "A booking has been cancelled",
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+          <h2 style="color:#0A1628;">Booking Cancelled</h2>
+          <p>Hi ${hostName},</p>
+          <p><strong>${customerName}</strong> has cancelled their booking for <strong>${booking.property.title}</strong>.</p>
+          <p>Booking Ref: <strong>${booking._id.toString().slice(-8).toUpperCase()}</strong></p>
+          <p>The VenCome Team</p>
+        </div>
+      `,
+    });
+
+    res.json({ success: true, message: "Booking cancelled successfully" });
+  } catch (err) {
+    console.error("Cancel booking error:", err);
+    res.status(500).json({ error: "Server error", details: err.message });
+  }
+});
+
 module.exports = router;
