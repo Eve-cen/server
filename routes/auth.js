@@ -252,21 +252,13 @@ router.post("/google", async (req, res) => {
     return res.status(400).json({ error: "Google token is required" });
 
   try {
-    const ticket = await client.verifyIdToken({
-      idToken: token,
-      audience: process.env.GOOGLE_CLIENT_ID,
-    });
-    const {
-      email,
-      given_name,
-      family_name,
-      picture,
-      email_verified,
-      sub: googleId,
-    } = ticket.getPayload();
+    const { email, firstName, lastName, picture, googleId } = req.body;
+    const given_name = firstName;
+    const family_name = lastName;
 
-    if (!email_verified)
-      return res.status(401).json({ error: "Google email not verified" });
+    if (!email || !googleId) {
+      return res.status(400).json({ error: "Missing Google user data" });
+    }
 
     let user = await User.findOne({ email });
     if (!user) {
