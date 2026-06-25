@@ -1184,4 +1184,24 @@ router.delete("/:id/lease", auth, async (req, res) => {
   }
 });
 
+router.get("/property/:propertyId/booked-dates", async (req, res) => {
+  try {
+    const Booking = require("../models/Booking");
+    const bookings = await Booking.find({
+      property: req.params.propertyId,
+      status: { $in: ["confirmed", "pending"] },
+    }).select("checkIn checkOut");
+
+    const bookedDates = bookings.map((b) => ({
+      start: b.checkIn,
+      end: b.checkOut,
+    }));
+
+    res.json({ success: true, bookedDates });
+  } catch (err) {
+    console.error("Error fetching booked dates:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 module.exports = router;
