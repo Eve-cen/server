@@ -106,7 +106,7 @@ router.post(
       if (isNaN(checkInDate) || isNaN(checkOutDate)) {
         return res.status(400).json({ error: "Invalid date format" });
       }
-      if (checkOutDate <= checkInDate) {
+      if (checkOutDate < checkInDate) {
         return res
           .status(400)
           .json({ error: "Check-out must be after check-in" });
