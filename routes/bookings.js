@@ -253,24 +253,52 @@ router.post(
         return "DAILY";
       })();
 
-      if (effectivePricingType === "DAILY") {
-        const nights = Math.ceil(
-          (checkOutDate - checkInDate) / (1000 * 60 * 60 * 24)
-        );
-        totalNights = Math.max(nights, 1);
-        if (dailyPrice <= 0) {
-          return res.status(400).json({ error: "Daily price not configured for this space" });
-        }
-        totalPrice = totalNights * dailyPrice;
-      } else if (effectivePricingType === "HOURLY") {
-        totalHours = (checkOutDate - checkInDate) / (1000 * 60 * 60);
-        if (totalHours < 1) {
+      const diffMs = checkOutDate - checkInDate;
+      const diffHours = diffMs / (1000 * 60 * 60);
+
+      const weeklyPrice = Number(property.pricing.weekly) || 0;
+      const monthlyPrice = Number(property.pricing.monthly) || 0;
+      const annualPrice = Number(property.pricing.annual) || 0;
+
+      if (effectivePricingType === "HOURLY") {
+        if (diffHours < 1) {
           return res.status(400).json({ error: "Minimum 1 hour required" });
         }
         if (hourlyPrice <= 0) {
           return res.status(400).json({ error: "Hourly price not configured for this space" });
         }
-        totalPrice = totalHours * hourlyPrice;
+        totalHours = Math.ceil(diffHours * 10) / 10;
+        totalPrice = Math.round(totalHours * hourlyPrice * 100) / 100;
+
+      } else if (effectivePricingType === "DAILY") {
+        if (dailyPrice <= 0) {
+          return res.status(400).json({ error: "Daily price not configured for this space" });
+        }
+        // Each started day counts as a full day. Same-day = 1 day.
+        totalNights = Math.max(1, Math.ceil(diffHours / 24));
+        totalPrice = totalNights * dailyPrice;
+
+      } else if (effectivePricingType === "WEEKLY") {
+        if (weeklyPrice <= 0) {
+          return res.status(400).json({ error: "Weekly price not configured for this space" });
+        }
+        const weeks = Math.max(1, Math.ceil(diffHours / (24 * 7)));
+        totalPrice = weeks * weeklyPrice;
+
+      } else if (effectivePricingType === "MONTHLY") {
+        if (monthlyPrice <= 0) {
+          return res.status(400).json({ error: "Monthly price not configured for this space" });
+        }
+        const months = Math.max(1, Math.ceil(diffHours / (24 * 30)));
+        totalPrice = months * monthlyPrice;
+
+      } else if (effectivePricingType === "ANNUAL") {
+        if (annualPrice <= 0) {
+          return res.status(400).json({ error: "Annual price not configured for this space" });
+        }
+        const years = Math.max(1, Math.ceil(diffHours / (24 * 365)));
+        totalPrice = years * annualPrice;
+
       } else {
         return res.status(400).json({ error: "Invalid pricing type" });
       }
