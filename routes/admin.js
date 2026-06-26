@@ -243,4 +243,32 @@ router.get("/payouts/pending", async (req, res) => {
   res.json(bookings);
 });
 
+// GET /admin/bookings — all bookings across the platform
+router.get("/bookings", async (req, res) => {
+  try {
+    const Booking = require("../models/Booking");
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, parseInt(req.query.limit) || 20);
+    const status = req.query.status;
+
+    const query = status && status !== "all" ? { status } : {};
+
+    const [bookings, total] = await Promise.all([
+      Booking.find(query)
+        .populate("property", "title location coverImage")
+        .populate("customer", "firstName lastName displayName email")
+        .populate("host", "firstName lastName displayName email")
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit),
+      Booking.countDocuments(query),
+    ]);
+
+    res.json({ success: true, bookings, total, page, totalPages: Math.ceil(total / limit) });
+  } catch (err) {
+    console.error("Admin bookings error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 module.exports = router;
