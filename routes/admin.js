@@ -256,7 +256,7 @@ router.get("/bookings", async (req, res) => {
     const [bookings, total] = await Promise.all([
       Booking.find(query)
         .populate("property", "title location coverImage")
-        .populate("customer", "firstName lastName displayName email")
+        .populate("guest", "firstName lastName displayName email")
         .populate("host", "firstName lastName displayName email")
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
