@@ -325,6 +325,16 @@ router.post(
       totalPrice = Math.round((totalPrice - discount) * 100) / 100;
       if (isNaN(totalPrice) || totalPrice < 0) totalPrice = 0;
 
+      // Commission rates by duration type
+      const commissionRate = (() => {
+        if (effectivePricingType === "ANNUAL") return 0.03;
+        if (effectivePricingType === "MONTHLY") return 0.06;
+        return 0.10;
+      })();
+
+      const platformFee = Math.round(totalPrice * commissionRate * 100) / 100;
+      const hostAmount = Math.round((totalPrice - platformFee) * 100) / 100;
+
       // 9. Create booking
       const booking = new Booking({
         property: propertyId,
@@ -335,6 +345,8 @@ router.post(
         guests: guests || 1,
         extras: selectedExtras,
         totalPrice,
+        platformFee,
+        hostAmount,
         discountApplied: Math.round(discount * 100) / 100,
         totalNights:
           property.pricing.pricingType === "DAILY" ? totalNights : undefined,
@@ -1237,12 +1249,12 @@ router.post("/:id/cancel", auth, async (req, res) => {
   try {
     const booking = await Booking.findById(req.params.id)
       .populate("property", "title")
-      .populate("customer", "email firstName displayName")
+      .populate("guest", "email firstName displayName")
       .populate("host", "email firstName displayName");
 
     if (!booking) return res.status(404).json({ error: "Booking not found" });
 
-    if (booking.customer._id.toString() !== req.user.id) {
+    if (booking.guest._id.toString() !== req.user.id) {
       return res.status(403).json({ error: "Unauthorized" });
     }
 
@@ -1253,12 +1265,12 @@ router.post("/:id/cancel", auth, async (req, res) => {
     booking.status = "cancelled";
     await booking.save();
 
-    const customerName = booking.customer.displayName || booking.customer.firstName || "Customer";
+    const customerName = booking.guest.displayName || booking.guest.firstName || "Customer";
     const hostName = booking.host.displayName || booking.host.firstName || "Host";
 
     // Email to customer
     sendEmail({
-      to: booking.customer.email,
+      to: booking.guest.email,
       subject: "Your booking has been cancelled",
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
