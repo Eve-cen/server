@@ -271,4 +271,49 @@ router.get("/bookings", async (req, res) => {
   }
 });
 
+// GET /admin/payments — payment overview from bookings
+router.get("/payments", async (req, res) => {
+  try {
+    const range = req.query.range || "30";
+    const days = parseInt(range) || 30;
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const bookings = await Booking.find({ isPaid: true, createdAt: { $gte: since } })
+      .populate("property", "title location")
+      .populate("guest", "firstName lastName displayName email")
+      .populate("host", "firstName lastName displayName email")
+      .sort({ createdAt: -1 })
+      .limit(100);
+
+    const allPaid = await Booking.find({ isPaid: true });
+    const gmv = allPaid.reduce((sum, b) => sum + (b.totalPrice || 0), 0);
+    const platformRevenue = allPaid.reduce((sum, b) => sum + (b.platformFee || 0), 0);
+    const inEscrow = await Booking.find({ isPaid: true, escrowReleased: false, status: { $in: ["confirmed", "pending"] } });
+    const escrowTotal = inEscrow.reduce((sum, b) => sum + (b.hostAmount || 0), 0);
+    const awaitingPayout = await Booking.find({ isPaid: true, escrowReleased: false, status: "completed" });
+    const awaitingTotal = awaitingPayout.reduce((sum, b) => sum + (b.hostAmount || 0), 0);
+
+    res.json({
+      success: true,
+      stats: { gmv, platformRevenue, inEscrow: escrowTotal, awaitingPayout: awaitingTotal },
+      transactions: bookings.map((b) => ({
+        id: b._id.toString().slice(-8).toUpperCase(),
+        bookingRef: b._id.toString().slice(-8).toUpperCase(),
+        customer: b.guest?.displayName || [b.guest?.firstName, b.guest?.lastName].filter(Boolean).join(" ") || b.guest?.email || "—",
+        host: b.host?.displayName || [b.host?.firstName, b.host?.lastName].filter(Boolean).join(" ") || b.host?.email || "—",
+        space: b.property?.title || "—",
+        amount: b.totalPrice || 0,
+        commission: b.platformFee || 0,
+        hostPayout: b.hostAmount || 0,
+        status: b.escrowReleased ? "completed" : b.status === "cancelled" ? "refunded" : "escrow_held",
+        date: b.createdAt,
+        currency: "GBP",
+      })),
+    });
+  } catch (err) {
+    console.error("Admin payments error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 module.exports = router;
