@@ -452,4 +452,36 @@ function emailTemplate(title, body, otp) {
 </div>`;
 }
 
+// POST /auth/referrals/invite — send host invite email
+router.post("/referrals/invite", async (req, res) => {
+  try {
+    const { email, name } = req.body;
+    if (!email) return res.status(400).json({ error: "Email is required" });
+
+    const referrerName = req.user ? `${req.user.firstName || "A VenCome member"}` : "A VenCome member";
+
+    await sendEmail({
+      to: email,
+      subject: `${referrerName} invited you to list your space on VenCome`,
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+          <img src="https://www.vencome.com/VenCome.jpg" alt="VenCome" style="height:40px;margin-bottom:24px;" />
+          <h2 style="color:#0A1628;">You've been invited to list on VenCome</h2>
+          <p>Hi ${name || "there"},</p>
+          <p>${referrerName} thinks you'd be a great fit for VenCome — the UK and Middle East's leading B2B commercial space marketplace.</p>
+          <p>List your commercial space and start earning. It only takes a few minutes to get started.</p>
+          <a href="https://www.vencome.com/login?role=host" style="display:inline-block;margin:20px 0;padding:14px 28px;background:#305CDE;color:#fff;text-decoration:none;border-radius:10px;font-weight:700;font-size:15px;">List My Space</a>
+          <p style="color:#6B7280;font-size:13px;">If you have any questions, contact us at support@vencome.com</p>
+          <p style="color:#6B7280;font-size:13px;">The VenCome Team</p>
+        </div>
+      `,
+    });
+
+    res.json({ success: true, message: "Invite sent successfully" });
+  } catch (err) {
+    console.error("Referral invite error:", err);
+    res.status(500).json({ error: "Failed to send invite" });
+  }
+});
+
 module.exports = router;
