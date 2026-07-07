@@ -274,29 +274,41 @@ router.post(
         if (dailyPrice <= 0) {
           return res.status(400).json({ error: "Daily price not configured for this space" });
         }
-        // Each started day counts as a full day. Same-day = 1 day.
-        totalNights = Math.max(1, Math.ceil(diffHours / 24));
+        // Count calendar days (date difference only, ignore time)
+        const checkInDay = new Date(checkInDate.getFullYear(), checkInDate.getMonth(), checkInDate.getDate());
+        const checkOutDay = new Date(checkOutDate.getFullYear(), checkOutDate.getMonth(), checkOutDate.getDate());
+        const calendarDays = Math.round((checkOutDay - checkInDay) / (1000 * 60 * 60 * 24));
+        totalNights = Math.max(1, calendarDays);
         totalPrice = totalNights * dailyPrice;
 
       } else if (effectivePricingType === "WEEKLY") {
         if (weeklyPrice <= 0) {
           return res.status(400).json({ error: "Weekly price not configured for this space" });
         }
-        const weeks = Math.max(1, Math.ceil(diffHours / (24 * 7)));
+        const checkInDay = new Date(checkInDate.getFullYear(), checkInDate.getMonth(), checkInDate.getDate());
+        const checkOutDay = new Date(checkOutDate.getFullYear(), checkOutDate.getMonth(), checkOutDate.getDate());
+        const calendarDays = Math.round((checkOutDay - checkInDay) / (1000 * 60 * 60 * 24));
+        const weeks = Math.max(1, Math.ceil(calendarDays / 7));
         totalPrice = weeks * weeklyPrice;
 
       } else if (effectivePricingType === "MONTHLY") {
         if (monthlyPrice <= 0) {
           return res.status(400).json({ error: "Monthly price not configured for this space" });
         }
-        const months = Math.max(1, Math.ceil(diffHours / (24 * 30)));
+        const checkInDay = new Date(checkInDate.getFullYear(), checkInDate.getMonth(), checkInDate.getDate());
+        const checkOutDay = new Date(checkOutDate.getFullYear(), checkOutDate.getMonth(), checkOutDate.getDate());
+        const calendarDays = Math.round((checkOutDay - checkInDay) / (1000 * 60 * 60 * 24));
+        const months = Math.max(1, Math.ceil(calendarDays / 31));
         totalPrice = months * monthlyPrice;
 
       } else if (effectivePricingType === "ANNUAL") {
         if (annualPrice <= 0) {
           return res.status(400).json({ error: "Annual price not configured for this space" });
         }
-        const years = Math.max(1, Math.ceil(diffHours / (24 * 365)));
+        const checkInDay = new Date(checkInDate.getFullYear(), checkInDate.getMonth(), checkInDate.getDate());
+        const checkOutDay = new Date(checkOutDate.getFullYear(), checkOutDate.getMonth(), checkOutDate.getDate());
+        const calendarDays = Math.round((checkOutDay - checkInDay) / (1000 * 60 * 60 * 24));
+        const years = Math.max(1, Math.ceil(calendarDays / 366));
         totalPrice = years * annualPrice;
 
       } else {
