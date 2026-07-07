@@ -184,6 +184,86 @@ app.use("/api/drafts", draftRoutes);
 app.use("/api/admin", require("./routes/admin"));
 app.use("/uploads", express.static("uploads"));
 
+// Dynamic sitemap
+app.get("/sitemap.xml", async (req, res) => {
+  try {
+    const Property = require("./models/Property");
+    const properties = await Property.find({ isActive: true }).select("_id updatedAt").lean();
+
+    const baseUrl = "https://www.vencome.com";
+    const staticUrls = [
+      { loc: `${baseUrl}/`, priority: "1.0", changefreq: "daily" },
+      { loc: `${baseUrl}/search`, priority: "0.9", changefreq: "daily" },
+      { loc: `${baseUrl}/about`, priority: "0.6", changefreq: "monthly" },
+      { loc: `${baseUrl}/contact`, priority: "0.6", changefreq: "monthly" },
+    ];
+
+    const propertyUrls = properties.map((p) => ({
+      loc: `${baseUrl}/property/${p._id}`,
+      priority: "0.8",
+      changefreq: "weekly",
+      lastmod: p.updatedAt ? new Date(p.updatedAt).toISOString().split("T")[0] : undefined,
+    }));
+
+    const allUrls = [...staticUrls, ...propertyUrls];
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${allUrls
+  .map(
+    (url) => `  <url>
+    <loc>${url.loc}</loc>
+    ${url.lastmod ? `<lastmod>${url.lastmod}</lastmod>` : ""}
+    <changefreq>${url.changefreq}</changefreq>
+    <priority>${url.priority}</priority>
+  </url>`
+  )
+  .join("\n")}
+</urlset>`;
+
+    res.set("Content-Type", "application/xml");
+    res.set("Cache-Control", "public, max-age=3600");
+    res.send(xml);
+  } catch (err) {
+    console.error("Sitemap error:", err);
+    res.status(500).send("Error generating sitemap");
+  }
+});
+
+// llms.txt - for AI crawlers
+app.get("/llms.txt", (req, res) => {
+  res.set("Content-Type", "text/plain");
+  res.send(`# VenCome
+> VenCome is a B2B commercial space rental marketplace connecting business hosts with professional tenants across the UK and Middle East.
+
+## What We Do
+VenCome allows businesses to list and book commercial spaces including offices, studios, meeting rooms, event venues, co-working spaces, medical rooms, retail units, and warehouses.
+
+## Target Markets
+- United Kingdom (London, Manchester, Birmingham, Edinburgh)
+- Middle East (Dubai, Abu Dhabi, Riyadh, Doha)
+
+## Key Features
+- Instant booking and request-to-book flows
+- Hourly, daily, weekly, monthly, and annual pricing
+- Escrow-based payments with 10% platform commission
+- Host verification and trust scoring
+- Google Maps integration with price pins
+- Real-time availability calendar
+
+## User Types
+- Customers (tenants) - search, book, and pay for commercial spaces
+- Hosts (landlords) - list and manage commercial properties
+- Admins - platform management and oversight
+
+## Links
+- Homepage: https://www.vencome.com
+- Search spaces: https://www.vencome.com/search
+- List a space: https://www.vencome.com/create-space
+- Contact: https://www.vencome.com/contact
+`);
+});
+
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 setupEscrowRelease();
