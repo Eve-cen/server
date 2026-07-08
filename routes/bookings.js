@@ -435,6 +435,14 @@ router.post(
           property.location?.country ? `, ${property.location.country}` : ""
         }</td>
                     </tr>
+                    ${booking.status === "confirmed" && property.location?.address ? `
+                    <tr>
+                      <td style="padding: 6px 0; color: #666;">Full Address</td>
+                      <td style="padding: 6px 0; text-align: right; font-weight: 600; color: #305CDE;">${
+                        [property.location.address, property.location.city, property.location.country].filter(Boolean).join(", ")
+                      }</td>
+                    </tr>
+                    ` : ''}
                     <tr>
                       <td style="padding: 6px 0; color: #666;">Check-in</td>
                       <td style="padding: 6px 0; text-align: right; font-weight: 600;">${booking.checkIn.toLocaleDateString()}</td>
@@ -708,6 +716,59 @@ router.put("/:id/status", auth, async (req, res) => {
       status === "confirmed" ? "bookingConfirmed" : "bookingDeclined";
     io.to(`guest_${booking.guest._id}`).emit(eventName, booking);
     io.to(`host_${req.user.id}`).emit(eventName, booking);
+
+    // Send email to guest on approval or decline
+    try {
+      const guestUser = await User.findById(booking.guest._id || booking.guest);
+      if (guestUser?.email) {
+        const guestName = guestUser.displayName || guestUser.firstName || "there";
+        const prop = await Property.findById(booking.property._id || booking.property);
+        const fullAddress = prop?.location ? [prop.location.address, prop.location.city, prop.location.country].filter(Boolean).join(", ") : "";
+
+        if (status === "confirmed") {
+          sendEmail({
+            to: guestUser.email,
+            subject: "Your booking has been confirmed 🎉",
+            html: `
+              <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+                <img src="https://vencome.com/VenCome.jpg" alt="VenCome" style="height:40px;margin-bottom:24px;" />
+                <h2 style="color:#0A1628;">Booking Confirmed 🎉</h2>
+                <p>Hi ${guestName},</p>
+                <p>Great news! The host has confirmed your booking for <strong>${prop?.title || "your space"}</strong>.</p>
+                <table style="width:100%;border-collapse:collapse;margin:20px 0;background:#F8F6F0;border-radius:8px;padding:16px;">
+                  <tr><td style="padding:8px 0;color:#666;">Space</td><td style="padding:8px 0;text-align:right;font-weight:700;">${prop?.title || ""}</td></tr>
+                  ${fullAddress ? `<tr><td style="padding:8px 0;color:#666;">Full Address</td><td style="padding:8px 0;text-align:right;font-weight:700;color:#305CDE;">${fullAddress}</td></tr>` : ""}
+                  <tr><td style="padding:8px 0;color:#666;">Check-in</td><td style="padding:8px 0;text-align:right;font-weight:700;">${new Date(booking.checkIn).toLocaleDateString()}</td></tr>
+                  <tr><td style="padding:8px 0;color:#666;">Check-out</td><td style="padding:8px 0;text-align:right;font-weight:700;">${new Date(booking.checkOut).toLocaleDateString()}</td></tr>
+                  <tr><td style="padding:8px 0;color:#666;">Total Paid</td><td style="padding:8px 0;text-align:right;font-weight:700;">£${booking.totalPrice}</td></tr>
+                </table>
+                <p>Your payment is securely held in escrow and will be released to the host after your booking is completed.</p>
+                <a href="https://www.vencome.com/customer/bookings" style="display:inline-block;padding:14px 28px;background:#305CDE;color:#fff;text-decoration:none;border-radius:10px;font-weight:700;">View My Booking</a>
+                <p style="margin-top:24px;color:#6B7280;font-size:13px;">The VenCome Team</p>
+              </div>
+            `,
+          });
+        } else if (status === "declined") {
+          sendEmail({
+            to: guestUser.email,
+            subject: "Your booking request was declined",
+            html: `
+              <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+                <img src="https://vencome.com/VenCome.jpg" alt="VenCome" style="height:40px;margin-bottom:24px;" />
+                <h2 style="color:#0A1628;">Booking Not Confirmed</h2>
+                <p>Hi ${guestName},</p>
+                <p>Unfortunately, the host was unable to confirm your booking request for <strong>${prop?.title || "the space"}</strong>.</p>
+                <p>You have not been charged. If a payment was captured, a full refund will be processed within 5-10 business days.</p>
+                <a href="https://www.vencome.com/search" style="display:inline-block;padding:14px 28px;background:#0A1628;color:#fff;text-decoration:none;border-radius:10px;font-weight:700;">Find Another Space</a>
+                <p style="margin-top:24px;color:#6B7280;font-size:13px;">The VenCome Team</p>
+              </div>
+            `,
+          });
+        }
+      }
+    } catch (emailErr) {
+      console.error("Approval email error:", emailErr.message);
+    }
 
     res.json(booking);
   } catch (err) {
