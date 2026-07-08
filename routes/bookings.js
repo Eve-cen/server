@@ -1,4 +1,5 @@
 const express = require("express");
+const { generateInvoicePDF } = require("../utils/generateInvoice");
 const Booking = require("../models/Booking");
 const Property = require("../models/Property");
 const createNotification = require("../utils/notify");
@@ -726,9 +727,23 @@ router.put("/:id/status", auth, async (req, res) => {
         const fullAddress = prop?.location ? [prop.location.address, prop.location.city, prop.location.country].filter(Boolean).join(", ") : "";
 
         if (status === "confirmed") {
+          // Generate invoice PDF
+          let invoiceAttachment = null;
+          try {
+            const invoiceBuffer = await generateInvoicePDF(booking, prop, guestUser, await User.findById(booking.host));
+            invoiceAttachment = {
+              filename: `VenCome-Invoice-${booking._id.toString().slice(-8).toUpperCase()}.pdf`,
+              content: invoiceBuffer,
+              contentType: "application/pdf",
+            };
+          } catch (invoiceErr) {
+            console.error("Invoice generation error:", invoiceErr.message);
+          }
+
           sendEmail({
             to: guestUser.email,
             subject: "Your booking has been confirmed 🎉",
+            attachments: invoiceAttachment ? [invoiceAttachment] : [],
             html: `
               <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
                 <img src="https://vencome.com/VenCome.jpg" alt="VenCome" style="height:40px;margin-bottom:24px;" />

@@ -66,7 +66,7 @@ const dotenv = require("dotenv");
 dotenv.config({ path: "./config.env" });
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-const sendEmail = async ({ to, subject, text, html }) => {
+const sendEmail = async ({ to, subject, text, html, attachments = [] }) => {
   try {
     const msg = {
       to,
@@ -78,6 +78,15 @@ const sendEmail = async ({ to, subject, text, html }) => {
       text,
       html,
     };
+
+    if (attachments.length > 0) {
+      msg.attachments = attachments.map((att) => ({
+        content: att.content.toString("base64"),
+        filename: att.filename,
+        type: att.contentType || "application/pdf",
+        disposition: "attachment",
+      }));
+    }
 
     await sgMail.send(msg);
   } catch (err) {
