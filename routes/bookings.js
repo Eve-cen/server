@@ -786,49 +786,26 @@ function getRefundPolicy(policy, checkIn) {
   const checkInDate = new Date(checkIn);
   const hoursUntilCheckIn = (checkInDate - now) / (1000 * 60 * 60);
 
-  switch (policy) {
-    case "flexible":
-      // Full refund if cancelled more than 24hrs before check-in
-      if (hoursUntilCheckIn > 24)
-        return {
-          refundPercent: 100,
-          reason: "Cancelled within flexible policy (>24hrs)",
-        };
-      return {
-        refundPercent: 0,
-        reason: "Cancelled too close to check-in (flexible policy)",
-      };
-
-    case "moderate":
-      // Full refund if cancelled more than 5 days before check-in
-      if (hoursUntilCheckIn > 5 * 24)
-        return {
-          refundPercent: 100,
-          reason: "Cancelled within moderate policy (>5 days)",
-        };
-      return {
-        refundPercent: 0,
-        reason: "Cancelled too close to check-in (moderate policy)",
-      };
-
-    case "strict":
-      // 50% refund if cancelled more than 7 days before, none after
-      if (hoursUntilCheckIn > 7 * 24)
-        return {
-          refundPercent: 50,
-          reason: "Cancelled within strict policy (>7 days) — 50% refund",
-        };
-      return {
-        refundPercent: 0,
-        reason: "Cancelled too close to check-in (strict policy)",
-      };
-
-    case "non-refundable":
-      return { refundPercent: 0, reason: "Non-refundable booking" };
-
-    default:
-      return { refundPercent: 0, reason: "No refund policy set" };
+  // VenCome standard cancellation policy
+  // 48hrs+ before check-in: full refund
+  // 24-48hrs before check-in: 50% refund
+  // Under 24hrs before check-in: no refund
+  if (hoursUntilCheckIn >= 48) {
+    return {
+      refundPercent: 100,
+      reason: "Cancelled more than 48 hours before check-in — full refund",
+    };
   }
+  if (hoursUntilCheckIn >= 24) {
+    return {
+      refundPercent: 50,
+      reason: "Cancelled 24-48 hours before check-in — 50% refund",
+    };
+  }
+  return {
+    refundPercent: 0,
+    reason: "Cancelled less than 24 hours before check-in — no refund",
+  };
 }
 
 // ─── Cancel booking ───────────────────────────────────────────────────────────
