@@ -356,6 +356,36 @@ router.post(
 
       const savedProperty = await property.save();
 
+      // Notify admins of new listing
+      try {
+        const sendEmail = require("../utils/sendEmail");
+        const host = await User.findById(req.user.id).select("firstName lastName displayName email").lean();
+        const hostName = host?.displayName || host?.firstName || "A host";
+        const adminEmails = ["vencomeltd@gmail.com", "bashayr.alharthi@outlook.com"];
+        sendEmail({
+          to: adminEmails,
+          subject: `New Listing Published - ${title}`,
+          html: `
+            <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+              <img src=" https://vencome.com/VenCome.jpg " alt="VenCome" style="height:40px;margin-bottom:24px;" />
+              <h2 style="color:#0A1628;">New Listing Created 🏢</h2>
+              <p>A new commercial space has just been listed on VenCome.</p>
+              <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+                <tr><td style="padding:8px 0;color:#666;">Listing</td><td style="padding:8px 0;font-weight:700;">${title}</td></tr>
+                <tr><td style="padding:8px 0;color:#666;">Host</td><td style="padding:8px 0;font-weight:700;">${hostName} (${host?.email || ""})</td></tr>
+                <tr><td style="padding:8px 0;color:#666;">Category</td><td style="padding:8px 0;font-weight:700;">${category || "Uncategorized"}</td></tr>
+                <tr><td style="padding:8px 0;color:#666;">Location</td><td style="padding:8px 0;font-weight:700;">${location?.city || ""}, ${location?.country || ""}</td></tr>
+                <tr><td style="padding:8px 0;color:#666;">Time</td><td style="padding:8px 0;font-weight:700;">${new Date().toLocaleString("en-GB")}</td></tr>
+              </table>
+              <a href=" https://www.vencome.com/admin " style="display:inline-block;padding:12px 24px;background:#305CDE;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;margin-right:12px;">View in Admin</a>
+              <a href=" https://www.vencome.com/property/${savedProperty._id} " style="display:inline-block;padding:12px 24px;background:#0A1628;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;">View Listing</a>
+            </div>
+          `,
+        }).catch((err) => console.error("Listing notification error:", err.message));
+      } catch (notifyErr) {
+        console.error("Failed to send listing notification:", notifyErr.message);
+      }
+
       const propertyCount = await Property.countDocuments({
         host: req.user.id,
       });
