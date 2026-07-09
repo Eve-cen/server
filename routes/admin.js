@@ -316,4 +316,43 @@ router.get("/payments", async (req, res) => {
   }
 });
 
+// POST /admin/broadcast — send email to all/hosts/customers
+router.post("/broadcast", async (req, res) => {
+  try {
+    const { subject, message, target } = req.body;
+    if (!subject || !message) return res.status(400).json({ error: "Subject and message are required" });
+
+    const query = target === "hosts" ? { isHost: true } : target === "customers" ? { isHost: false } : {};
+    const users = await User.find(query).select("email firstName displayName").lean();
+
+    if (!users.length) return res.status(400).json({ error: "No users found for this target" });
+
+    const sendEmail = require("../utils/sendEmail");
+    const emailPromises = users.map(user => {
+      const name = user.displayName || user.firstName || "there";
+      return sendEmail({
+        to: user.email,
+        subject,
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+            <img src=" `https://vencome.com/VenCome.jpg` " alt="VenCome" style="height:40px;margin-bottom:24px;" />
+            <p>Hi ${name},</p>
+            <div style="font-size:15px;line-height:1.7;color:#374151;">
+              ${message.replace(/\n/g, "<br/>")}
+            </div>
+            <hr style="border:none;border-top:1px solid #E5E7EB;margin:24px 0;" />
+            <p style="font-size:12px;color:#9CA3AF;">You received this email because you are a registered VenCome user. © ${new Date().getFullYear()} VenCome</p>
+          </div>
+        `,
+      }).catch(err => console.error(`Failed to send to ${user.email}:`, err.message));
+    });
+
+    await Promise.allSettled(emailPromises);
+    res.json({ success: true, sent: users.length });
+  } catch (err) {
+    console.error("Broadcast error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 module.exports = router;
