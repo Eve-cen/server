@@ -355,4 +355,59 @@ router.post("/broadcast", async (req, res) => {
   }
 });
 
+// POST /admin/users/:id/verify — grant or revoke VenCome Verified
+router.post("/users/:id/verify", async (req, res) => {
+  try {
+    const { action } = req.body; // "grant" or "revoke"
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    if (action === "grant") {
+      user.venComeVerified = true;
+      user.venComeVerifiedAt = new Date();
+    } else {
+      user.venComeVerified = false;
+      user.venComeVerifiedAt = null;
+    }
+    await user.save();
+
+    const sendEmail = require("../utils/sendEmail");
+    const name = user.displayName || user.firstName || "there";
+    if (action === "grant") {
+      sendEmail({
+        to: user.email,
+        subject: "You are now VenCome Verified ✓",
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+            <img src=" `https://vencome.com/VenCome.jpg` " alt="VenCome" style="height:40px;margin-bottom:24px;" />
+            <h2 style="color:#0A1628;">Congratulations, ${name}! 🎉</h2>
+            <p>Your VenCome account has been officially verified. You will now display the <strong>VenCome Verified ✓</strong> badge on your profile and listings.</p>
+            <p>This badge shows customers that you are a trusted, professional host on the platform.</p>
+            <a href=" `https://www.vencome.com` " style="display:inline-block;padding:14px 28px;background:#305CDE;color:#fff;text-decoration:none;border-radius:10px;font-weight:700;">View Your Profile</a>
+            <p style="color:#6B7280;font-size:13px;margin-top:24px;">The VenCome Team</p>
+          </div>
+        `,
+      }).catch(console.error);
+    }
+
+    res.json({ success: true, user: { _id: user._id, venComeVerified: user.venComeVerified } });
+  } catch (err) {
+    console.error("Verify user error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /admin/users/:id/apply-verified — host applies for verified status
+router.post("/users/:id/apply-verified", async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+    user.venComeVerifiedAppliedAt = new Date();
+    await user.save();
+    res.json({ success: true, message: "Application submitted" });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 module.exports = router;
