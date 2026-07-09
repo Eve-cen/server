@@ -67,6 +67,26 @@ router.post("/signup", authLimiter, async (req, res) => {
     });
     await user.save();
 
+    // Notify admins of new signup
+    const adminEmails = ["vencomeltd@gmail.com", "bashayr.alharthi@outlook.com"];
+    const roleLabel = isHost ? "Host" : "Customer";
+    sendEmail({
+      to: adminEmails,
+      subject: `New ${roleLabel} Signup — ${normalizedEmail}`,
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+          <h2 style="color:#0A1628;">New ${roleLabel} Signup 🎉</h2>
+          <p>A new ${roleLabel.toLowerCase()} has just signed up on VenCome.</p>
+          <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+            <tr><td style="padding:8px 0;color:#666;">Email</td><td style="padding:8px 0;font-weight:700;">${normalizedEmail}</td></tr>
+            <tr><td style="padding:8px 0;color:#666;">Role</td><td style="padding:8px 0;font-weight:700;">${roleLabel}</td></tr>
+            <tr><td style="padding:8px 0;color:#666;">Time</td><td style="padding:8px 0;font-weight:700;">${new Date().toLocaleString("en-GB")}</td></tr>
+          </table>
+          <a href=" `https://www.vencome.com/admin` " style="display:inline-block;padding:12px 24px;background:#305CDE;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;">View in Admin Panel</a>
+        </div>
+      `,
+    });
+
     const otp = generateOTP();
     await storeOTP(normalizedEmail, otp);
 
@@ -275,6 +295,27 @@ router.post("/google", async (req, res) => {
         isHost: !!isHost,
       });
       await user.save();
+
+      // Notify admins of new Google signup
+      const adminEmails = ["vencomeltd@gmail.com", "bashayr.alharthi@outlook.com"];
+      const roleLabel = isHost ? "Host" : "Customer";
+      sendEmail({
+        to: adminEmails,
+        subject: `New ${roleLabel} Signup (Google) — ${email}`,
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+            <h2 style="color:#0A1628;">New ${roleLabel} Signup via Google 🎉</h2>
+            <p>A new ${roleLabel.toLowerCase()} has just signed up on VenCome using Google.</p>
+            <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+              <tr><td style="padding:8px 0;color:#666;">Name</td><td style="padding:8px 0;font-weight:700;">${given_name} ${family_name}</td></tr>
+              <tr><td style="padding:8px 0;color:#666;">Email</td><td style="padding:8px 0;font-weight:700;">${email}</td></tr>
+              <tr><td style="padding:8px 0;color:#666;">Role</td><td style="padding:8px 0;font-weight:700;">${roleLabel}</td></tr>
+              <tr><td style="padding:8px 0;color:#666;">Time</td><td style="padding:8px 0;font-weight:700;">${new Date().toLocaleString("en-GB")}</td></tr>
+            </table>
+            <a href=" `https://www.vencome.com/admin` " style="display:inline-block;padding:12px 24px;background:#305CDE;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;">View in Admin Panel</a>
+          </div>
+        `,
+      });
     } else if (isHost && !user.isHost) {
       user.isHost = true;
       await user.save();
