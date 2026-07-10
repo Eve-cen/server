@@ -183,7 +183,7 @@ app.use("/api/verification", verificationRoutes);
 app.use("/api/drafts", draftRoutes);
 app.use("/api/admin", require("./routes/admin"));
 app.use("/uploads", express.static("uploads"));
-app.use("/blog", require("./routes/blog"));
+app.use("/api/blog", require("./routes/blog"));
 
 // Dynamic sitemap
 app.get("/sitemap.xml", async (req, res) => {
