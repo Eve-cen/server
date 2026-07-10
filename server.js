@@ -189,7 +189,10 @@ app.use("/blog", require("./routes/blog"));
 app.get("/sitemap.xml", async (req, res) => {
   try {
     const Property = require("./models/Property");
-    const properties = await Property.find({ isActive: true }).select("_id updatedAt").lean();
+    const [properties, blogs] = await Promise.all([
+      Property.find({ isActive: true }).select("_id updatedAt").lean(),
+      require("./models/Blog").find({ status: "published" }).select("slug updatedAt").lean(),
+    ]);
 
     const baseUrl = "https://www.vencome.com";
     const staticUrls = [
@@ -206,7 +209,14 @@ app.get("/sitemap.xml", async (req, res) => {
       lastmod: p.updatedAt ? new Date(p.updatedAt).toISOString().split("T")[0] : undefined,
     }));
 
-    const allUrls = [...staticUrls, ...propertyUrls];
+    const blogUrls = blogs.map((b) => ({
+      loc: `${baseUrl}/blog/${b.slug}`,
+      priority: "0.7",
+      changefreq: "monthly",
+      lastmod: b.updatedAt ? new Date(b.updatedAt).toISOString().split("T")[0] : undefined,
+    }));
+
+    const allUrls = [...staticUrls, ...propertyUrls, ...blogUrls];
 
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
@@ -261,6 +271,7 @@ VenCome allows businesses to list and book commercial spaces including offices, 
 - Homepage: https://www.vencome.com
 - Search spaces: https://www.vencome.com/search
 - List a space: https://www.vencome.com/create-space
+- Blog: https://www.vencome.com/blog
 - Contact: https://www.vencome.com/contact
 `);
 });

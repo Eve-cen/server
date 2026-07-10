@@ -22,6 +22,9 @@ const blogSchema = new mongoose.Schema(
     publishedAt: { type: Date, default: null },
     readTime: { type: Number, default: 5 },
     views: { type: Number, default: 0 },
+    seoTitle: { type: String, default: "" },
+    seoDescription: { type: String, default: "" },
+    ogImage: { type: String, default: "" },
   },
   { timestamps: true }
 );

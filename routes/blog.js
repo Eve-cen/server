@@ -86,6 +86,9 @@ router.post("/", adminAuth, async (req, res) => {
       status: status || "draft",
       publishedAt: status === "published" ? new Date() : null,
       readTime: readTime || Math.ceil(content.split(" ").length / 200),
+      seoTitle: req.body.seoTitle || title,
+      seoDescription: req.body.seoDescription || excerpt,
+      ogImage: req.body.ogImage || coverImage || "",
     });
 
     await blog.save();
@@ -118,6 +121,9 @@ router.put("/:id", adminAuth, async (req, res) => {
     }
     if (readTime) blog.readTime = readTime;
     if (content) blog.readTime = Math.ceil(content.split(" ").length / 200);
+    if (req.body.seoTitle !== undefined) blog.seoTitle = req.body.seoTitle;
+    if (req.body.seoDescription !== undefined) blog.seoDescription = req.body.seoDescription;
+    if (req.body.ogImage !== undefined) blog.ogImage = req.body.ogImage;
 
     await blog.save();
     res.json({ success: true, blog });
