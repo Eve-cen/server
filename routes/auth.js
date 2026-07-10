@@ -82,7 +82,7 @@ router.post("/signup", authLimiter, async (req, res) => {
             <tr><td style="padding:8px 0;color:#666;">Role</td><td style="padding:8px 0;font-weight:700;">${roleLabel}</td></tr>
             <tr><td style="padding:8px 0;color:#666;">Time</td><td style="padding:8px 0;font-weight:700;">${new Date().toLocaleString("en-GB")}</td></tr>
           </table>
-          <a href=" `https://www.vencome.com/admin` " style="display:inline-block;padding:12px 24px;background:#305CDE;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;">View in Admin Panel</a>
+          <a href="https://www.vencome.com/admin" style="display:inline-block;padding:12px 24px;background:#305CDE;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;">View in Admin Panel</a>
         </div>
       `,
     });
@@ -312,7 +312,7 @@ router.post("/google", async (req, res) => {
               <tr><td style="padding:8px 0;color:#666;">Role</td><td style="padding:8px 0;font-weight:700;">${roleLabel}</td></tr>
               <tr><td style="padding:8px 0;color:#666;">Time</td><td style="padding:8px 0;font-weight:700;">${new Date().toLocaleString("en-GB")}</td></tr>
             </table>
-            <a href=" `https://www.vencome.com/admin` " style="display:inline-block;padding:12px 24px;background:#305CDE;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;">View in Admin Panel</a>
+            <a href="https://www.vencome.com/admin" style="display:inline-block;padding:12px 24px;background:#305CDE;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;">View in Admin Panel</a>
           </div>
         `,
       });
