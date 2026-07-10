@@ -335,7 +335,7 @@ router.post("/broadcast", async (req, res) => {
         subject,
         html: `
           <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
-            <img src=" `https://vencome.com/VenCome.jpg` " alt="VenCome" style="height:40px;margin-bottom:24px;" />
+            <img src="https://vencome.com/VenCome.jpg" alt="VenCome" style="height:40px;margin-bottom:24px;" />
             <p>Hi ${name},</p>
             <div style="font-size:15px;line-height:1.7;color:#374151;">
               ${message.replace(/\n/g, "<br/>")}
@@ -379,11 +379,11 @@ router.post("/users/:id/verify", async (req, res) => {
         subject: "You are now VenCome Verified ✓",
         html: `
           <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
-            <img src=" `https://vencome.com/VenCome.jpg` " alt="VenCome" style="height:40px;margin-bottom:24px;" />
+            <img src="https://vencome.com/VenCome.jpg" alt="VenCome" style="height:40px;margin-bottom:24px;" />
             <h2 style="color:#0A1628;">Congratulations, ${name}! 🎉</h2>
             <p>Your VenCome account has been officially verified. You will now display the <strong>VenCome Verified ✓</strong> badge on your profile and listings.</p>
             <p>This badge shows customers that you are a trusted, professional host on the platform.</p>
-            <a href=" `https://www.vencome.com` " style="display:inline-block;padding:14px 28px;background:#305CDE;color:#fff;text-decoration:none;border-radius:10px;font-weight:700;">View Your Profile</a>
+            <a href="https://www.vencome.com" style="display:inline-block;padding:14px 28px;background:#305CDE;color:#fff;text-decoration:none;border-radius:10px;font-weight:700;">View Your Profile</a>
             <p style="color:#6B7280;font-size:13px;margin-top:24px;">The VenCome Team</p>
           </div>
         `,
