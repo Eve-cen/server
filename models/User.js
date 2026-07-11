@@ -152,6 +152,16 @@ const userSchema = new mongoose.Schema(
       lastSyncedAt: Date,
       lastSyncError: String,
     },
+    // Cal.com connects via a personal API key the host pastes in (Cal.com's
+    // own dashboard -> Settings -> Developer -> API Keys), not OAuth.
+    calcom: {
+      connected: { type: Boolean, default: false },
+      apiKey: String,
+      username: String,
+      connectedAt: Date,
+      lastSyncedAt: Date,
+      lastSyncError: String,
+    },
   },
   { timestamps: true }
 );

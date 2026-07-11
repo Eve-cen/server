@@ -30,6 +30,7 @@ const setupEscrowRelease = require("./utils/releaseEscrow");
 const setupBookingExpiry = require("./utils/expirePendingBookings");
 const setupGoogleCalendarSync = require("./utils/syncGoogleCalendars");
 const setupOutlookCalendarSync = require("./utils/syncOutlookCalendars");
+const setupCalcomCalendarSync = require("./utils/syncCalcomCalendars");
 
 const cron = require("node-cron");
 const markCompletedBookings = require("./jobs/markCompletedBookings");
@@ -305,3 +306,4 @@ setupEscrowRelease();
 setupBookingExpiry();
 setupGoogleCalendarSync();
 setupOutlookCalendarSync();
+setupCalcomCalendarSync();
