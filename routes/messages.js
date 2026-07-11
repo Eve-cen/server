@@ -2,7 +2,10 @@ const express = require("express");
 const Message = require("../models/Message");
 const Conversation = require("../models/Conversation");
 const Property = require("../models/Property");
+const Booking = require("../models/Booking");
+const User = require("../models/User");
 const auth = require("../middleware/auth");
+const sendEmail = require("../utils/sendEmail");
 const router = express.Router();
 
 // GET: Get all conversations for current user
@@ -88,6 +91,56 @@ router.get("/property/:propertyId", auth, async (req, res) => {
     res.json({ conversation, messages });
   } catch (err) {
     console.error("Get property conversation error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET: Get or create conversation for a booking (works for either the guest
+// or the host on that booking — unlike GET /property/:propertyId, which
+// always assumes the caller is the guest).
+router.get("/booking/:bookingId", auth, async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    const userId = req.user.id;
+
+    const booking = await Booking.findById(bookingId).select("property guest host");
+    if (!booking) return res.status(404).json({ error: "Booking not found" });
+
+    if (booking.guest.toString() !== userId && booking.host.toString() !== userId) {
+      return res.status(403).json({ error: "Not authorised" });
+    }
+
+    let conversation = await Conversation.findOne({
+      property: booking.property,
+      guest: booking.guest,
+      host: booking.host,
+    })
+      .populate("host", "firstName lastName displayName profileImage name email")
+      .populate("guest", "firstName lastName displayName profileImage name email")
+      .populate("property", "title coverImage");
+
+    if (!conversation) {
+      conversation = new Conversation({
+        property: booking.property,
+        host: booking.host,
+        guest: booking.guest,
+        participants: [booking.host, booking.guest],
+      });
+      await conversation.save();
+      await conversation.populate([
+        { path: "host", select: "firstName lastName displayName profileImage name email" },
+        { path: "guest", select: "firstName lastName displayName profileImage name email" },
+        { path: "property", select: "title coverImage" },
+      ]);
+    }
+
+    const messages = await Message.find({ conversation: conversation._id })
+      .sort({ createdAt: 1 })
+      .populate("sender", "firstName lastName displayName profileImage");
+
+    res.json({ conversation, messages });
+  } catch (err) {
+    console.error("Get booking conversation error:", err);
     res.status(500).json({ error: "Server error" });
   }
 });
@@ -210,15 +263,54 @@ router.post("/", auth, async (req, res) => {
 
     // Emit via socket
     const io = req.app.get("io");
+    const recipientIsHost = conversation.host.toString() !== userId;
+    const recipientId = recipientIsHost
+      ? conversation.host.toString()
+      : conversation.guest.toString();
+
     if (io) {
       io.to(conversationId).emit("message", message);
-      const recipientId = conversation.host.toString() === userId
-        ? conversation.guest.toString()
-        : conversation.host.toString();
       io.to(`user_${recipientId}`).emit("newMessage", {
         conversationId,
         message,
       });
+
+      // Email the recipient only if they don't currently have this
+      // conversation open (i.e. none of their active sockets are in the
+      // conversation room) — avoids spamming someone who is actively
+      // chatting right now.
+      const recipientSocketIds = io.sockets.adapter.rooms.get(`user_${recipientId}`);
+      const conversationSocketIds = io.sockets.adapter.rooms.get(conversationId);
+      const recipientViewing =
+        recipientSocketIds &&
+        conversationSocketIds &&
+        [...recipientSocketIds].some((id) => conversationSocketIds.has(id));
+
+      if (!recipientViewing) {
+        User.findById(recipientId)
+          .select("email displayName firstName")
+          .then((recipientUser) => {
+            if (!recipientUser?.email) return;
+            const recipientName = recipientUser.displayName || recipientUser.firstName || "there";
+            sendEmail({
+              to: recipientUser.email,
+              subject: "New message on VenCome",
+              html: `<div style="font-family:'Manrope',Arial,sans-serif;background:#f4f4f7;padding:20px;">
+                <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;">
+                  <div style="background:#f0f0f0;padding:20px;text-align:center;"><img src="${process.env.CLIENT_URL}/logo-blue.png" alt="VenCome" style="max-width:150px;"></div>
+                  <div style="padding:30px;color:#333;">
+                    <h2 style="color:#305CDE;">New message</h2>
+                    <p>Hi ${recipientName}, you have a new message on VenCome:</p>
+                    <p style="background:#F8F6F0;border-radius:8px;padding:16px;color:#111827;">${text.slice(0, 200)}</p>
+                    <a href="${process.env.CLIENT_URL}/${recipientIsHost ? "dashboard" : "customer"}/messages/${conversationId}" style="display:inline-block;margin-top:8px;padding:12px 24px;background:#0A1628;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;">View message</a>
+                  </div>
+                  <div style="background:#f0f0f0;padding:20px;text-align:center;font-size:12px;color:#888;">© ${new Date().getFullYear()} VenCome. All rights reserved.</div>
+                </div>
+              </div>`,
+            }).catch((err) => console.error("New message email failed:", err.message));
+          })
+          .catch((err) => console.error("Recipient lookup for message email failed:", err.message));
+      }
     }
 
     res.json(message);
