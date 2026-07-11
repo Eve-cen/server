@@ -33,6 +33,11 @@ const bookingSchema = new mongoose.Schema(
     // Cleared implicitly once isPaid is true (captured) or the booking is
     // declined/expired (authorization released).
     paymentAuthorizedAt: Date,
+    // Google Calendar event ID on the host's connected calendar, if any —
+    // lets us update/delete the pushed event on cancellation.
+    googleCalendarEventId: String,
+    // Same, for Outlook / Microsoft Graph.
+    outlookCalendarEventId: String,
     cancelledBy: { type: String, enum: ["guest", "host"] },
     cancelledAt: Date,
     refund: {

@@ -13,6 +13,8 @@ const fs = require("fs");
 const { randomUUID } = require("crypto");
 const uploadToR2 = require("../utils/uploadService");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+const googleCalendar = require("../utils/googleCalendar");
+const outlookCalendar = require("../utils/outlookCalendar");
 
 const pdfStorage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -753,6 +755,44 @@ router.put("/:id/status", auth, async (req, res) => {
       });
     }
 
+    // Push to the host's connected calendar(s), if any. Never block the
+    // booking flow on this -- calendar sync is a convenience, not a
+    // requirement.
+    if (status === "confirmed") {
+      const hostUser = await User.findById(req.user.id).select("googleCalendar outlookCalendar");
+      const eventPayload = {
+        summary: `VenCome booking — ${property.title}`,
+        description: `Booking ref ${booking._id.toString().slice(-8).toUpperCase()} via VenCome.`,
+        location: property.location?.address || property.title,
+        start: booking.checkIn,
+        end: booking.checkOut,
+      };
+
+      if (!booking.googleCalendarEventId && hostUser?.googleCalendar?.connected) {
+        try {
+          booking.googleCalendarEventId = await googleCalendar.createEvent(
+            hostUser.googleCalendar.refreshToken,
+            eventPayload
+          );
+        } catch (calErr) {
+          console.error(`Google Calendar push failed for booking ${booking._id}:`, calErr.message);
+        }
+      }
+
+      if (!booking.outlookCalendarEventId && hostUser?.outlookCalendar?.connected) {
+        try {
+          booking.outlookCalendarEventId = await outlookCalendar.createEvent(
+            hostUser.outlookCalendar.refreshToken,
+            eventPayload
+          );
+        } catch (calErr) {
+          console.error(`Outlook push failed for booking ${booking._id}:`, calErr.message);
+        }
+      }
+
+      if (booking.isModified()) await booking.save();
+    }
+
     await booking.populate(["guest", "property"]);
 
     const io = req.app.get("io");
@@ -1013,6 +1053,27 @@ router.delete("/:id/cancel", auth, async (req, res) => {
     await Property.findByIdAndUpdate(booking.property._id, {
       $pull: { blockedDates: { bookingId: booking._id } },
     });
+
+    // ── Remove any pushed calendar events ──────────────────────────────────────
+    if (booking.googleCalendarEventId || booking.outlookCalendarEventId) {
+      const hostUser = await User.findById(booking.host).select("googleCalendar outlookCalendar");
+
+      if (booking.googleCalendarEventId && hostUser?.googleCalendar?.connected) {
+        try {
+          await googleCalendar.deleteEvent(hostUser.googleCalendar.refreshToken, booking.googleCalendarEventId);
+        } catch (calErr) {
+          console.error(`Google Calendar delete failed for booking ${booking._id}:`, calErr.message);
+        }
+      }
+
+      if (booking.outlookCalendarEventId && hostUser?.outlookCalendar?.connected) {
+        try {
+          await outlookCalendar.deleteEvent(hostUser.outlookCalendar.refreshToken, booking.outlookCalendarEventId);
+        } catch (calErr) {
+          console.error(`Outlook delete failed for booking ${booking._id}:`, calErr.message);
+        }
+      }
+    }
 
     // ── Notify the other party via socket ─────────────────────────────────────
     const notifyUserId = isHost ? booking.guest : booking.host;

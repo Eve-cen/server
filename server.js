@@ -28,6 +28,8 @@ const Message = require("./models/Message");
 const Conversation = require("./models/Conversation");
 const setupEscrowRelease = require("./utils/releaseEscrow");
 const setupBookingExpiry = require("./utils/expirePendingBookings");
+const setupGoogleCalendarSync = require("./utils/syncGoogleCalendars");
+const setupOutlookCalendarSync = require("./utils/syncOutlookCalendars");
 
 const cron = require("node-cron");
 const markCompletedBookings = require("./jobs/markCompletedBookings");
@@ -202,6 +204,7 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/verification", verificationRoutes);
 app.use("/api/drafts", draftRoutes);
 app.use("/api/admin", require("./routes/admin"));
+app.use("/api/calendar", require("./routes/calendarSync"));
 app.use("/uploads", express.static("uploads"));
 app.use("/api/blog", require("./routes/blog"));
 
@@ -300,3 +303,5 @@ const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 setupEscrowRelease();
 setupBookingExpiry();
+setupGoogleCalendarSync();
+setupOutlookCalendarSync();

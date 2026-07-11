@@ -5,6 +5,8 @@ const Booking = require("../models/Booking");
 const Payment = require("../models/Payment");
 const User = require("../models/User");
 const sendEmail = require("../utils/sendEmail");
+const googleCalendar = require("../utils/googleCalendar");
+const outlookCalendar = require("../utils/outlookCalendar");
 
 router.post("/", express.raw({ type: "application/json" }), async (req, res) => {
   const sig = req.headers["stripe-signature"];
@@ -59,6 +61,35 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
           status: "paid",
           escrowReleaseAt: releaseDate,
         });
+
+        // Instant Book — confirmed immediately, so push to the host's
+        // connected calendar(s) here too (Request to Book does this on
+        // approval, in routes/bookings.js PUT /:id/status instead).
+        try {
+          const hostUser = await User.findById(booking.property.host).select("googleCalendar outlookCalendar");
+          const eventPayload = {
+            summary: `VenCome booking — ${booking.property.title}`,
+            description: `Booking ref ${booking._id.toString().slice(-8).toUpperCase()} via VenCome.`,
+            start: booking.checkIn,
+            end: booking.checkOut,
+          };
+
+          if (hostUser?.googleCalendar?.connected) {
+            booking.googleCalendarEventId = await googleCalendar.createEvent(
+              hostUser.googleCalendar.refreshToken,
+              eventPayload
+            );
+          }
+          if (hostUser?.outlookCalendar?.connected) {
+            booking.outlookCalendarEventId = await outlookCalendar.createEvent(
+              hostUser.outlookCalendar.refreshToken,
+              eventPayload
+            );
+          }
+          if (booking.isModified()) await booking.save();
+        } catch (calErr) {
+          console.error(`Calendar push failed for booking ${booking._id}:`, calErr.message);
+        }
       } else {
         // Request to Book — card is authorized only. Nothing is captured
         // until the host approves (routes/bookings.js PUT /:id/status), or

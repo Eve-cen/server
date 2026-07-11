@@ -131,6 +131,27 @@ const userSchema = new mongoose.Schema(
     mcc: String,
     website: String,
     businessType: String,
+    // Host-level Google Calendar connection (separate from googleId/authProvider
+    // above, which is only used for login). Two-way sync: VenCome bookings push
+    // out as events, and events on this calendar block VenCome availability.
+    googleCalendar: {
+      connected: { type: Boolean, default: false },
+      refreshToken: String,
+      email: String,
+      connectedAt: Date,
+      lastSyncedAt: Date,
+      lastSyncError: String,
+    },
+    // Same shape and same two-way sync pattern as googleCalendar above, via
+    // Microsoft Graph instead of the Google Calendar API.
+    outlookCalendar: {
+      connected: { type: Boolean, default: false },
+      refreshToken: String,
+      email: String,
+      connectedAt: Date,
+      lastSyncedAt: Date,
+      lastSyncError: String,
+    },
   },
   { timestamps: true }
 );
