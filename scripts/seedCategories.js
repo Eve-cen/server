@@ -1,23 +1,10 @@
 const mongoose = require("mongoose");
 require("dotenv").config({ path: "./config.env" });
 
-const categorySchema = new mongoose.Schema(
-  {
-    name: String,
-    description: String,
-    image: String,
-    subcategories: [
-      {
-        name: String,
-        description: String,
-        image: String,
-      },
-    ],
-  },
-  { timestamps: true }
-);
-
-const Category = mongoose.model("Category", categorySchema);
+// Use the real model (not a shadow schema) so `status` gets its proper
+// default of "published" -- GET /categories filters on status: "published",
+// so documents inserted without that field would silently never show up.
+const Category = require("../models/Category");
 
 mongoose
   .connect(process.env.DATABASE)
