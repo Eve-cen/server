@@ -27,6 +27,7 @@ const socketIo = require("socket.io");
 const Message = require("./models/Message");
 const Conversation = require("./models/Conversation");
 const setupEscrowRelease = require("./utils/releaseEscrow");
+const setupBookingExpiry = require("./utils/expirePendingBookings");
 
 const cron = require("node-cron");
 const markCompletedBookings = require("./jobs/markCompletedBookings");
@@ -143,6 +144,25 @@ app.use(cors(corsOptions));
 cron.schedule("0 0 * * *", async () => {
   console.log("Running daily booking cleanup...");
   await markCompletedBookings();
+});
+
+// Sync connected external calendars (Google Calendar / Outlook / iCal feeds)
+// every 6 hours so external bookings block VenCome availability.
+cron.schedule("0 */6 * * *", async () => {
+  console.log("[Calendar Sync] Syncing connected external calendars...");
+  try {
+    const Property = require("./models/Property");
+    const syncExternalCalendar = require("./utils/syncIcal");
+    const properties = await Property.find({ icalUrl: { $exists: true, $ne: null } }).select("_id");
+    for (const property of properties) {
+      await syncExternalCalendar(property._id).catch((err) =>
+        console.error(`[Calendar Sync] Failed for property ${property._id}:`, err.message)
+      );
+    }
+    console.log(`[Calendar Sync] Done — checked ${properties.length} listing(s)`);
+  } catch (err) {
+    console.error("[Calendar Sync] Cron error:", err.message);
+  }
 });
 
 app.use(
@@ -279,3 +299,4 @@ VenCome allows businesses to list and book commercial spaces including offices, 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 setupEscrowRelease();
+setupBookingExpiry();

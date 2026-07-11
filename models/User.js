@@ -95,6 +95,7 @@ const userSchema = new mongoose.Schema(
     venComeVerifiedAppliedAt: { type: Date, default: null },
     isHost: { type: Boolean, default: false },
     isAdmin: { type: Boolean, default: false },
+    adminTitle: { type: String, default: "" }, // e.g. "Founder", "Tech Lead" — display only
     isBanned: { type: Boolean, default: false },
     profileImage: {
       type: String,
@@ -112,6 +113,13 @@ const userSchema = new mongoose.Schema(
     dob: dobSchema,
     reviews: [reviewSchema],
     stripeAccountId: String,
+    // Connect Express account state, driven by routes/payouts.js — not the
+    // guest-side card/customer flow below.
+    stripeOnboardingStatus: {
+      type: String,
+      enum: ["not_connected", "pending", "connected"],
+      default: "not_connected",
+    },
     stripeCustomerId: String,
     stripeVerificationSessionId: String,
     ip: String,
@@ -128,7 +136,6 @@ const userSchema = new mongoose.Schema(
 );
 
 // ── Indexes ────────────────────────────────────────────────────────────────────
-userSchema.index({ email: 1 }, { unique: true });
 userSchema.index({ isHost: 1 });
 userSchema.index({ isBanned: 1 });
 userSchema.index({ "businessVerification.status": 1 });

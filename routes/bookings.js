@@ -2,6 +2,7 @@ const express = require("express");
 const { generateInvoicePDF } = require("../utils/generateInvoice");
 const Booking = require("../models/Booking");
 const Property = require("../models/Property");
+const Payment = require("../models/Payment");
 const createNotification = require("../utils/notify");
 const auth = require("../middleware/auth");
 const sendEmail = require("../utils/sendEmail");
@@ -11,6 +12,7 @@ const multer = require("multer");
 const fs = require("fs");
 const { randomUUID } = require("crypto");
 const uploadToR2 = require("../utils/uploadService");
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 
 const pdfStorage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -670,6 +672,47 @@ router.put("/:id/status", auth, async (req, res) => {
     if (!property) return res.status(404).json({ error: "Property not found" });
 
     const previousStatus = booking.status;
+
+    // Request to Book authorizes the card but doesn't capture it (see
+    // routes/payments.js). Resolve that hold here, before committing the
+    // status change, so a failed capture doesn't leave the booking confirmed
+    // with no payment behind it.
+    const awaitingCapture = Boolean(booking.paymentIntentId) && !booking.isPaid;
+
+    if (status === "confirmed" && awaitingCapture) {
+      try {
+        await stripe.paymentIntents.capture(booking.paymentIntentId);
+      } catch (captureErr) {
+        console.error(`Payment capture failed for booking ${booking._id}:`, captureErr.message);
+        return res.status(502).json({
+          error: "Could not charge the guest's card — booking was not confirmed.",
+          detail: captureErr.message,
+        });
+      }
+
+      booking.isPaid = true;
+      const releaseDate = new Date(booking.checkOut);
+      releaseDate.setHours(releaseDate.getHours() + 24);
+      booking.escrowReleaseDate = releaseDate;
+
+      await Payment.findOneAndUpdate(
+        { booking: booking._id },
+        { status: "paid", escrowReleaseAt: releaseDate }
+      );
+    }
+
+    if (status === "declined" && awaitingCapture) {
+      try {
+        await stripe.paymentIntents.cancel(booking.paymentIntentId);
+      } catch (cancelErr) {
+        // Log and continue — the booking should still be declined even if
+        // Stripe's hold was already released/expired on their side.
+        console.error(`Failed to release payment hold for booking ${booking._id}:`, cancelErr.message);
+      }
+
+      await Payment.findOneAndUpdate({ booking: booking._id }, { status: "released" });
+    }
+
     booking.status = status;
     await booking.save();
 
@@ -792,34 +835,66 @@ router.put("/:id/status", auth, async (req, res) => {
   }
 });
 
-const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
-
 // ─── Refund policy helper ─────────────────────────────────────────────────────
-// Returns { refundPercent: 0-100, reason: string }
+// Returns { refundPercent: 0-100, reason: string }. Tiers scale with how
+// strict the host's chosen policy (Property.bookingSettings.refundPolicy) is.
 function getRefundPolicy(policy, checkIn) {
   const now = new Date();
   const checkInDate = new Date(checkIn);
   const hoursUntilCheckIn = (checkInDate - now) / (1000 * 60 * 60);
 
-  // VenCome standard cancellation policy
-  // 48hrs+ before check-in: full refund
-  // 24-48hrs before check-in: 50% refund
-  // Under 24hrs before check-in: no refund
-  if (hoursUntilCheckIn >= 48) {
+  if (policy === "non-refundable") {
+    return { refundPercent: 0, reason: "Non-refundable booking — no refund available" };
+  }
+
+  if (policy === "flexible") {
+    if (hoursUntilCheckIn >= 24) {
+      return {
+        refundPercent: 100,
+        reason: "Cancelled 24+ hours before check-in — full refund (flexible policy)",
+      };
+    }
+    return {
+      refundPercent: 50,
+      reason: "Cancelled less than 24 hours before check-in — 50% refund (flexible policy)",
+    };
+  }
+
+  if (policy === "strict") {
+    if (hoursUntilCheckIn >= 336) {
+      return {
+        refundPercent: 100,
+        reason: "Cancelled 14+ days before check-in — full refund (strict policy)",
+      };
+    }
+    if (hoursUntilCheckIn >= 168) {
+      return {
+        refundPercent: 50,
+        reason: "Cancelled 7-14 days before check-in — 50% refund (strict policy)",
+      };
+    }
+    return {
+      refundPercent: 0,
+      reason: "Cancelled less than 7 days before check-in — no refund (strict policy)",
+    };
+  }
+
+  // "moderate" (default)
+  if (hoursUntilCheckIn >= 120) {
     return {
       refundPercent: 100,
-      reason: "Cancelled more than 48 hours before check-in — full refund",
+      reason: "Cancelled 5+ days before check-in — full refund (moderate policy)",
     };
   }
   if (hoursUntilCheckIn >= 24) {
     return {
       refundPercent: 50,
-      reason: "Cancelled 24-48 hours before check-in — 50% refund",
+      reason: "Cancelled 24 hours-5 days before check-in — 50% refund (moderate policy)",
     };
   }
   return {
     refundPercent: 0,
-    reason: "Cancelled less than 24 hours before check-in — no refund",
+    reason: "Cancelled less than 24 hours before check-in — no refund (moderate policy)",
   };
 }
 
@@ -856,6 +931,23 @@ router.delete("/:id/cancel", auth, async (req, res) => {
     let refundPercent = 0;
     let refundReason = "No payment on record";
     let stripeRefund = null;
+
+    // Request to Book bookings only authorize the card until the host
+    // approves (see routes/payments.js / routes/bookings.js PUT /:id/status).
+    // If no capture ever happened, there's nothing to refund — just release
+    // the hold so the guest's bank shows no charge at all.
+    const awaitingCapture = Boolean(booking.paymentIntentId) && !booking.isPaid;
+
+    if (awaitingCapture) {
+      try {
+        await stripe.paymentIntents.cancel(booking.paymentIntentId);
+      } catch (cancelErr) {
+        console.error(`Failed to release payment hold for booking ${booking._id}:`, cancelErr.message);
+      }
+      await Payment.findOneAndUpdate({ booking: booking._id }, { status: "released" });
+      refundPercent = 0;
+      refundReason = "Booking was never charged — card authorization released";
+    } else {
 
     const refundPolicy =
       booking.property?.bookingSettings?.refundPolicy || "non-refundable";
@@ -901,6 +993,8 @@ router.delete("/:id/cancel", auth, async (req, res) => {
         });
       }
     }
+
+    } // end awaitingCapture / normal-refund branch
 
     // ── Update booking ────────────────────────────────────────────────────────
     booking.status = "cancelled";
@@ -1309,66 +1403,12 @@ router.get("/property/:propertyId/booked-dates", async (req, res) => {
   }
 });
 
-// Cancel a booking (customer)
-router.post("/:id/cancel", auth, async (req, res) => {
-  try {
-    const booking = await Booking.findById(req.params.id)
-      .populate("property", "title")
-      .populate("guest", "email firstName displayName")
-      .populate("host", "email firstName displayName");
-
-    if (!booking) return res.status(404).json({ error: "Booking not found" });
-
-    if (booking.guest._id.toString() !== req.user.id) {
-      return res.status(403).json({ error: "Unauthorized" });
-    }
-
-    if (!["pending", "confirmed"].includes(booking.status)) {
-      return res.status(400).json({ error: "This booking cannot be cancelled" });
-    }
-
-    booking.status = "cancelled";
-    await booking.save();
-
-    const customerName = booking.guest.displayName || booking.guest.firstName || "Customer";
-    const hostName = booking.host.displayName || booking.host.firstName || "Host";
-
-    // Email to customer
-    sendEmail({
-      to: booking.guest.email,
-      subject: "Your booking has been cancelled",
-      html: `
-        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
-          <h2 style="color:#0A1628;">Booking Cancelled</h2>
-          <p>Hi ${customerName},</p>
-          <p>Your booking for <strong>${booking.property.title}</strong> has been cancelled.</p>
-          <p>Booking Ref: <strong>${booking._id.toString().slice(-8).toUpperCase()}</strong></p>
-          <p>If you paid, a refund will be processed within 5-10 business days.</p>
-          <p>The VenCome Team</p>
-        </div>
-      `,
-    });
-
-    // Email to host
-    sendEmail({
-      to: booking.host.email,
-      subject: "A booking has been cancelled",
-      html: `
-        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
-          <h2 style="color:#0A1628;">Booking Cancelled</h2>
-          <p>Hi ${hostName},</p>
-          <p><strong>${customerName}</strong> has cancelled their booking for <strong>${booking.property.title}</strong>.</p>
-          <p>Booking Ref: <strong>${booking._id.toString().slice(-8).toUpperCase()}</strong></p>
-          <p>The VenCome Team</p>
-        </div>
-      `,
-    });
-
-    res.json({ success: true, message: "Booking cancelled successfully" });
-  } catch (err) {
-    console.error("Cancel booking error:", err);
-    res.status(500).json({ error: "Server error", details: err.message });
-  }
-});
+// NOTE: booking cancellation (customer or host) is handled by the single
+// policy-aware DELETE /:id/cancel route above — it actually talks to Stripe
+// (refund or release-hold as appropriate) and respects the property's
+// refund policy. This used to be a second, parallel POST /:id/cancel route
+// that only flipped the status and emailed "a refund will be processed"
+// without ever refunding anything. Removed to avoid two conflicting cancel
+// paths; the client now calls DELETE /:id/cancel everywhere.
 
 module.exports = router;

@@ -28,6 +28,11 @@ router.post("/create-checkout-session", auth, async (req, res) => {
     const isValidImageUrl = rawImage.startsWith("https://") || rawImage.startsWith("http://");
     const imageUrl = isValidImageUrl ? encodeURI(rawImage) : undefined;
 
+    // Instant Book charges are captured immediately. Request to Book only
+    // authorizes the card — the charge is captured on host approval (or
+    // released on decline / 24h expiry) in routes/bookings.js.
+    const isDeferred = booking.status === "pending";
+
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       line_items: [
@@ -44,6 +49,7 @@ router.post("/create-checkout-session", auth, async (req, res) => {
         },
       ],
       mode: "payment",
+      payment_intent_data: isDeferred ? { capture_method: "manual" } : undefined,
       // success_url: `${process.env.CLIENT_URL_DEV}/my-bookings?success=true`,
       // cancel_url: `${process.env.CLIENT_URL_DEV}/my-bookings?cancel=true`,
       success_url: `${process.env.CLIENT_URL}/property/${booking.property._id}?success=true`,

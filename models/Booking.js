@@ -29,6 +29,10 @@ const bookingSchema = new mongoose.Schema(
     isPaid: { type: Boolean, default: false },
     stripeSessionId: String,
     paymentIntentId: String,
+    // Set when Request to Book authorizes (but doesn't yet capture) the card.
+    // Cleared implicitly once isPaid is true (captured) or the booking is
+    // declined/expired (authorization released).
+    paymentAuthorizedAt: Date,
     cancelledBy: { type: String, enum: ["guest", "host"] },
     cancelledAt: Date,
     refund: {
@@ -62,6 +66,8 @@ const bookingSchema = new mongoose.Schema(
       description: "Timestamp when guest signed the lease",
     },
     stripeTransferId: String,
+    disputeFrozen: { type: Boolean, default: false },
+    disputeId: String,
     reviewed: { type: Boolean, default: false },
     completed: { type: Boolean, default: false },
     review: { type: mongoose.Schema.Types.ObjectId, ref: "Review" },

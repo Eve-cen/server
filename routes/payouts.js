@@ -5,6 +5,58 @@ const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const User = require("../models/User");
 const auth = require("../middleware/auth");
 const Payout = require("../models/Payout");
+const makeUserHost = require("../utils/stripeConnect");
+
+// ── Stripe Connect Express onboarding ───────────────────────────────────────
+// This is the real payout-method connection flow: hosts never hand VenCome a
+// raw bank account number — Stripe's own hosted onboarding collects it.
+
+// Current connection status, for the Settings > Payouts tab.
+router.get("/connect/status", auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select(
+      "stripeAccountId stripeOnboardingStatus"
+    );
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    if (!user.stripeAccountId) {
+      return res.json({ status: "not_connected" });
+    }
+
+    const account = await stripe.accounts.retrieve(user.stripeAccountId);
+    const status = account.details_submitted && account.payouts_enabled ? "connected" : "pending";
+
+    if (status !== user.stripeOnboardingStatus) {
+      await User.findByIdAndUpdate(req.user.id, { stripeOnboardingStatus: status });
+    }
+
+    res.json({ status });
+  } catch (err) {
+    console.error("Payout connect status error:", err.message);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Start (or resume) Stripe-hosted Connect onboarding. Creates the Express
+// account on first call, then always returns a fresh onboarding link —
+// Stripe account links expire quickly, so one isn't generated in advance.
+router.post("/connect/onboarding-link", auth, async (req, res) => {
+  try {
+    const user = await makeUserHost(req.user.id);
+
+    const accountLink = await stripe.accountLinks.create({
+      account: user.stripeAccountId,
+      refresh_url: `${process.env.CLIENT_URL}/settings?payout=refresh`,
+      return_url: `${process.env.CLIENT_URL}/settings?payout=return`,
+      type: "account_onboarding",
+    });
+
+    res.json({ url: accountLink.url });
+  } catch (err) {
+    console.error("Payout onboarding link error:", err.message);
+    res.status(500).json({ error: err.message || "Failed to start onboarding" });
+  }
+});
 
 // Add payout method
 // router.post("/", auth, async (req, res) => {

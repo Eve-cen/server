@@ -24,7 +24,10 @@ const paymentSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ["pending", "paid", "refunded"],
+      // "authorized" = card held via Stripe manual capture, not yet charged
+      // (Request to Book, awaiting host response). "released" = the
+      // authorization was cancelled (declined/expired) without ever charging.
+      enum: ["pending", "authorized", "paid", "released", "refunded", "disputed"],
       default: "pending",
     },
 
