@@ -16,6 +16,61 @@ const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const googleCalendar = require("../utils/googleCalendar");
 const outlookCalendar = require("../utils/outlookCalendar");
 
+// Pushes a confirmed booking out to the host's connected Google/Outlook
+// calendar so it shows up alongside their other events, with the actual
+// check-in/check-out time (not just the date). Only Google and Outlook
+// support creating an event this way -- Cal.com, Calendly, and Apple
+// Calendar are pull-only on VenCome's side (see their respective utils/*
+// files for why), so a booking never pushes out to those three, only pulls
+// blocks in from them. Never throws -- calendar sync is a convenience, it
+// should never be able to break the booking flow itself.
+async function pushBookingToHostCalendars(booking, property) {
+  try {
+    const hostUser = await User.findById(booking.host).select(
+      "googleCalendar outlookCalendar"
+    );
+    if (!hostUser) return;
+
+    const eventPayload = {
+      summary: `VenCome booking — ${property.title}`,
+      description: `Booking ref ${booking._id.toString().slice(-8).toUpperCase()} via VenCome.`,
+      location: property.location?.address || property.title,
+      start: booking.checkIn,
+      end: booking.checkOut,
+    };
+
+    let changed = false;
+
+    if (!booking.googleCalendarEventId && hostUser.googleCalendar?.connected) {
+      try {
+        booking.googleCalendarEventId = await googleCalendar.createEvent(
+          hostUser.googleCalendar.refreshToken,
+          eventPayload
+        );
+        changed = true;
+      } catch (calErr) {
+        console.error(`Google Calendar push failed for booking ${booking._id}:`, calErr.message);
+      }
+    }
+
+    if (!booking.outlookCalendarEventId && hostUser.outlookCalendar?.connected) {
+      try {
+        booking.outlookCalendarEventId = await outlookCalendar.createEvent(
+          hostUser.outlookCalendar.refreshToken,
+          eventPayload
+        );
+        changed = true;
+      } catch (calErr) {
+        console.error(`Outlook push failed for booking ${booking._id}:`, calErr.message);
+      }
+    }
+
+    if (changed) await booking.save();
+  } catch (err) {
+    console.error(`Calendar push error for booking ${booking._id}:`, err.message);
+  }
+}
+
 const pdfStorage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadDir = "uploads/temp/";
@@ -390,6 +445,12 @@ router.post(
             },
           },
         });
+
+        // Push instant-book confirmations straight to the host's connected
+        // Google/Outlook calendar, same as a request-to-book approval does.
+        pushBookingToHostCalendars(booking, property).catch((err) =>
+          console.error(`Calendar push failed for booking ${booking._id}:`, err.message)
+        );
       }
 
       // 11. Notify host
@@ -759,38 +820,7 @@ router.put("/:id/status", auth, async (req, res) => {
     // booking flow on this -- calendar sync is a convenience, not a
     // requirement.
     if (status === "confirmed") {
-      const hostUser = await User.findById(req.user.id).select("googleCalendar outlookCalendar");
-      const eventPayload = {
-        summary: `VenCome booking — ${property.title}`,
-        description: `Booking ref ${booking._id.toString().slice(-8).toUpperCase()} via VenCome.`,
-        location: property.location?.address || property.title,
-        start: booking.checkIn,
-        end: booking.checkOut,
-      };
-
-      if (!booking.googleCalendarEventId && hostUser?.googleCalendar?.connected) {
-        try {
-          booking.googleCalendarEventId = await googleCalendar.createEvent(
-            hostUser.googleCalendar.refreshToken,
-            eventPayload
-          );
-        } catch (calErr) {
-          console.error(`Google Calendar push failed for booking ${booking._id}:`, calErr.message);
-        }
-      }
-
-      if (!booking.outlookCalendarEventId && hostUser?.outlookCalendar?.connected) {
-        try {
-          booking.outlookCalendarEventId = await outlookCalendar.createEvent(
-            hostUser.outlookCalendar.refreshToken,
-            eventPayload
-          );
-        } catch (calErr) {
-          console.error(`Outlook push failed for booking ${booking._id}:`, calErr.message);
-        }
-      }
-
-      if (booking.isModified()) await booking.save();
+      await pushBookingToHostCalendars(booking, property);
     }
 
     await booking.populate(["guest", "property"]);

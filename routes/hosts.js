@@ -12,9 +12,21 @@ router.get("/me/onboarding-checklist", auth, async (req, res) => {
     if (!user) return res.status(404).json({ error: "User not found" });
 
     const listingCount = await Property.countDocuments({ host: req.user.id });
-    const calendarConnected = listingCount
+    // A host-level connection (Google/Outlook/Cal.com/Calendly/Apple, all
+    // added after this checklist was first built) counts just as much as a
+    // per-listing iCal feed URL -- this used to only check icalUrl, so a
+    // host who'd connected Google Calendar still saw this step as incomplete.
+    const hasHostLevelCalendar = Boolean(
+      user.googleCalendar?.connected ||
+        user.outlookCalendar?.connected ||
+        user.calcom?.connected ||
+        user.calendly?.connected ||
+        user.apple?.connected
+    );
+    const hasIcalListing = listingCount
       ? (await Property.countDocuments({ host: req.user.id, icalUrl: { $exists: true, $ne: null } })) > 0
       : false;
+    const calendarConnected = hasHostLevelCalendar || hasIcalListing;
 
     const steps = [
       {
@@ -29,7 +41,7 @@ router.get("/me/onboarding-checklist", auth, async (req, res) => {
         label: "Add a payout method",
         description: "Connect a bank account so you can get paid after bookings",
         completed: (user.payoutMethods || []).length > 0,
-        href: "/settings",
+        href: "/settings?tab=payout",
       },
       {
         key: "listing",
@@ -43,14 +55,14 @@ router.get("/me/onboarding-checklist", auth, async (req, res) => {
         label: "Connect your calendar",
         description: "Sync an external calendar so double-bookings can't happen",
         completed: calendarConnected,
-        href: "/host/listings",
+        href: "/settings?tab=calendar",
       },
       {
         key: "verified",
         label: "Get verified",
         description: "Verify your identity or business to build trust with guests",
         completed: !!(user.isIdentityVerified || user.businessVerified),
-        href: "/settings",
+        href: "/settings?tab=verification",
       },
     ];
 
