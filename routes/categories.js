@@ -68,6 +68,18 @@ router.get("/with-counts", async (req, res) => {
   }
 });
 
+// TEMP DIAGNOSTIC — remove once the categories-not-loading bug is confirmed fixed.
+// Dumps raw name/status so we can see exactly what's stored, bypassing any
+// client-side badge logic or filtering.
+router.get("/_debug/status", async (req, res) => {
+  try {
+    const raw = await Category.find({}, "name status").lean();
+    res.json(raw);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ✅ Get one category and all its properties
 router.get("/:id", async (req, res) => {
   try {
