@@ -12,7 +12,10 @@ const Market = require("../models/Market");
 const Category = require("../models/Category");
 const { generateInvoicePDF } = require("../utils/generateInvoice");
 const sendEmail = require("../utils/sendEmail");
+const { client: redisClient } = require("../utils/redisClient");
 const router = express.Router();
+
+const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
 
 // ─── Admin login (separate from regular user login) ──────────────────────────
 router.post("/login", async (req, res) => {
@@ -168,6 +171,75 @@ router.patch("/users/:id/admin", async (req, res) => {
   res.json(user);
 });
 
+// Admin-triggered password reset — sends the same OTP email used by the
+// self-service "forgot password" flow, so the user finishes it themselves
+// on /forgot-password. Admin never sees or sets the new password.
+router.post("/users/:id/reset-password", async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).select("email displayName firstName");
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const otp = generateOTP();
+    await redisClient.setEx(`otp:pwd:${user.email.toLowerCase().trim()}`, 600, otp);
+
+    const name = user.displayName || user.firstName || "there";
+    await sendEmail({
+      to: user.email,
+      subject: "Password Reset OTP",
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+          <h2 style="color:#0A1628;">Password Reset Requested</h2>
+          <p>Hi ${name}, a VenCome admin has started a password reset for your account. Use the code below on the password reset page:</p>
+          <p style="font-size:28px;font-weight:700;letter-spacing:4px;color:#0A1628;">${otp}</p>
+          <p style="color:#6B7280;font-size:13px;">This code expires in 10 minutes. If you didn't expect this, you can ignore it and your password will stay the same.</p>
+        </div>
+      `,
+    });
+
+    res.json({ success: true, message: "Reset code emailed to the user" });
+  } catch (err) {
+    console.error("Admin reset password error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Delete a user — guarded the same way as self-service account deletion
+// (DELETE /auth/account) so admins can't silently orphan live listings,
+// pending bookings, or payouts still sitting in escrow.
+router.delete("/users/:id", async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: "User not found" });
+    if (user.isAdmin) return res.status(400).json({ error: "Remove admin access before deleting this user" });
+
+    const [activeListings, unresolvedBookings, unpaidOutBookings] = await Promise.all([
+      Property.countDocuments({ host: userId, isActive: true }),
+      Booking.countDocuments({
+        $or: [{ host: userId }, { guest: userId }],
+        status: { $in: ["pending", "confirmed"] },
+      }),
+      Booking.countDocuments({ host: userId, isPaid: true, escrowReleased: false }),
+    ]);
+
+    if (activeListings > 0) {
+      return res.status(400).json({ error: `This user has ${activeListings} active listing(s). Deactivate them first.` });
+    }
+    if (unresolvedBookings > 0) {
+      return res.status(400).json({ error: `This user has ${unresolvedBookings} pending or confirmed booking(s). Resolve them first.` });
+    }
+    if (unpaidOutBookings > 0) {
+      return res.status(400).json({ error: `This user has ${unpaidOutBookings} booking(s) with a payout still in escrow.` });
+    }
+
+    await User.findByIdAndDelete(userId);
+    res.json({ success: true, message: "User deleted" });
+  } catch (err) {
+    console.error("Admin delete user error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 // ─── Verifications ────────────────────────────────────────────────────────────
 router.get("/verifications", async (req, res) => {
   const users = await User.find({ "businessVerification.status": "under_review" })
@@ -280,9 +352,30 @@ router.get("/properties", async (req, res) => {
 });
 
 router.patch("/properties/:id", async (req, res) => {
-  const { isActive } = req.body;
-  const property = await Property.findByIdAndUpdate(req.params.id, { isActive }, { new: true });
+  const { isActive, rejectionReason } = req.body;
+  const property = await Property.findByIdAndUpdate(req.params.id, { isActive }, { new: true })
+    .populate("host", "email displayName firstName");
   if (!property) return res.status(404).json({ error: "Property not found" });
+
+  // Rejecting a pending listing (isActive explicitly set to false with a
+  // reason) — let the host know why, since the listing otherwise just sits
+  // silently inactive with no other signal.
+  if (isActive === false && rejectionReason && property.host?.email) {
+    const name = property.host.displayName || property.host.firstName || "there";
+    sendEmail({
+      to: property.host.email,
+      subject: `Your listing "${property.title}" needs changes`,
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+          <h2 style="color:#0A1628;">Listing not approved yet</h2>
+          <p>Hi ${name}, your listing <strong>${property.title}</strong> wasn't approved during review:</p>
+          <p style="background:#F8F6F0;border-radius:8px;padding:16px;color:#111827;">${rejectionReason}</p>
+          <p>Make the changes and resubmit from your host dashboard.</p>
+        </div>
+      `,
+    }).catch(console.error);
+  }
+
   res.json(property);
 });
 

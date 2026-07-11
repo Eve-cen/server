@@ -4,11 +4,10 @@ require("dotenv").config({ path: "config.env" });
 const mongoose = require("mongoose");
 const Market = require("../models/Market");
 
+// Only UK is live for now (MVP launch market). Add Saudi Arabia / UAE / Qatar
+// here when those markets are ready to go live -- don't seed them ahead of time.
 const DEFAULT_MARKETS = [
   { name: "United Kingdom", flag: "🇬🇧", cities: ["London", "Manchester", "Birmingham", "Edinburgh"], status: "active", phase: "Phase 1", order: 0 },
-  { name: "Saudi Arabia", flag: "🇸🇦", cities: ["Riyadh", "Jeddah", "Dammam"], status: "active", phase: "Phase 2", order: 1 },
-  { name: "UAE", flag: "🇦🇪", cities: ["Dubai", "Abu Dhabi"], status: "coming_soon", phase: "Phase 3", order: 2 },
-  { name: "Qatar", flag: "🇶🇦", cities: ["Doha"], status: "planned", phase: "Phase 4", order: 3 },
 ];
 
 const run = async () => {
