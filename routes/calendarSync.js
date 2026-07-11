@@ -5,6 +5,8 @@ const auth = require("../middleware/auth");
 const googleCalendar = require("../utils/googleCalendar");
 const outlookCalendar = require("../utils/outlookCalendar");
 const calcomCalendar = require("../utils/calcomCalendar");
+const calendlyCalendar = require("../utils/calendlyCalendar");
+const appleCalendar = require("../utils/appleCalendar");
 const router = express.Router();
 
 // GET /calendar/google/connect — returns the Google consent screen URL.
@@ -252,6 +254,153 @@ router.post("/calcom/disconnect", auth, async (req, res) => {
   try {
     await User.findByIdAndUpdate(req.user.id, {
       calcom: { connected: false, apiKey: null, username: null },
+    });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── Calendly — same OAuth2 pattern as Google/Outlook above ───────────────────
+
+router.get("/calendly/connect", auth, async (req, res) => {
+  try {
+    const state = jwt.sign(
+      { userId: req.user.id, purpose: "calendar-connect", popup: req.query.popup === "1" },
+      process.env.JWT_SECRET,
+      { expiresIn: "10m" }
+    );
+    const url = calendlyCalendar.getAuthUrl(state);
+    res.json({ url });
+  } catch (err) {
+    console.error("Calendly connect error:", err.message);
+    res.status(500).json({ error: "Couldn't start Calendly connection" });
+  }
+});
+
+router.get("/calendly/callback", async (req, res) => {
+  const { code, state, error } = req.query;
+  const clientUrl = process.env.CLIENT_URL || "https://vencome.com";
+
+  let decoded = null;
+  if (state) {
+    try {
+      decoded = jwt.verify(state, process.env.JWT_SECRET);
+    } catch (_) {
+      decoded = null;
+    }
+  }
+  const isPopup = Boolean(decoded?.popup);
+
+  const respond = (success) => {
+    if (isPopup) {
+      res.set("Content-Type", "text/html").send(`<!DOCTYPE html><html><body><script>
+        if (window.opener) {
+          window.opener.postMessage({ type: "vencome-calendar", provider: "calendly", success: ${success} }, ${JSON.stringify(clientUrl)});
+        }
+        window.close();
+      </script></body></html>`);
+    } else {
+      res.redirect(`${clientUrl}/settings?calendar=${success ? "connected" : "error"}`);
+    }
+  };
+
+  if (error || !code || !decoded || decoded.purpose !== "calendar-connect") {
+    return respond(false);
+  }
+
+  try {
+    const tokens = await calendlyCalendar.exchangeCodeForTokens(code);
+    if (!tokens.refresh_token) {
+      return respond(false);
+    }
+
+    const calendlyUser = await calendlyCalendar.getCurrentUser(tokens.access_token);
+
+    await User.findByIdAndUpdate(decoded.userId, {
+      calendly: {
+        connected: true,
+        refreshToken: tokens.refresh_token,
+        email: calendlyUser?.email || null,
+        connectedAt: new Date(),
+        lastSyncedAt: null,
+        lastSyncError: null,
+      },
+    });
+
+    respond(true);
+  } catch (err) {
+    console.error("Calendly callback error:", err.message);
+    respond(false);
+  }
+});
+
+router.get("/calendly/status", auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select("calendly");
+    res.json(user?.calendly || { connected: false });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+router.post("/calendly/disconnect", auth, async (req, res) => {
+  try {
+    await User.findByIdAndUpdate(req.user.id, {
+      calendly: { connected: false, refreshToken: null, email: null },
+    });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── Apple Calendar (iCloud CalDAV) — Apple ID + app-specific password, same
+// direct-request pattern as Cal.com since there's no OAuth flow to redirect to.
+
+router.post("/apple/connect", auth, async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: "Apple ID and app-specific password are both required" });
+    }
+
+    await appleCalendar.verifyCredentials(username, password);
+
+    await User.findByIdAndUpdate(req.user.id, {
+      apple: {
+        connected: true,
+        username,
+        password,
+        connectedAt: new Date(),
+        lastSyncedAt: null,
+        lastSyncError: null,
+      },
+    });
+
+    res.json({ success: true, username });
+  } catch (err) {
+    console.error("Apple Calendar connect error:", err.message);
+    res.status(400).json({ error: "Couldn't connect — check the Apple ID and app-specific password" });
+  }
+});
+
+router.get("/apple/status", auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select("apple");
+    const status = user?.apple
+      ? { ...user.apple.toObject(), password: undefined } // never send the password back
+      : { connected: false };
+    res.json(status);
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+router.post("/apple/disconnect", auth, async (req, res) => {
+  try {
+    await User.findByIdAndUpdate(req.user.id, {
+      apple: { connected: false, username: null, password: null },
     });
     res.json({ success: true });
   } catch (err) {

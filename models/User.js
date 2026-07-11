@@ -162,6 +162,25 @@ const userSchema = new mongoose.Schema(
       lastSyncedAt: Date,
       lastSyncError: String,
     },
+    // Calendly — standard OAuth2, same shape as googleCalendar/outlookCalendar.
+    calendly: {
+      connected: { type: Boolean, default: false },
+      refreshToken: String,
+      email: String,
+      connectedAt: Date,
+      lastSyncedAt: Date,
+      lastSyncError: String,
+    },
+    // Apple iCloud Calendar via CalDAV -- connects with an Apple ID email +
+    // an app-specific password (Apple has no practical OAuth flow for this).
+    apple: {
+      connected: { type: Boolean, default: false },
+      username: String, // Apple ID email
+      password: String, // app-specific password
+      connectedAt: Date,
+      lastSyncedAt: Date,
+      lastSyncError: String,
+    },
   },
   { timestamps: true }
 );

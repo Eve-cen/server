@@ -1,4 +1,5 @@
 const express = require("express");
+const jwt = require("jsonwebtoken");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
@@ -155,6 +156,14 @@ router.post(
       }
       const availability = req.body.availability || "all";
       const host = req.user.id;
+
+      // Optional iCal feed URL set during creation (same field the
+      // PropertyAvailability/EditSpace pages patch later) -- validated the
+      // same way as that PATCH route.
+      const icalUrl = req.body.icalUrl && String(req.body.icalUrl).trim();
+      if (icalUrl && !/^https?:\/\//i.test(icalUrl)) {
+        return res.status(400).json({ error: "iCal URL must start with http:// or https://" });
+      }
 
       // ── Required fields check ──
       if (!title || !description) {
@@ -352,6 +361,7 @@ router.post(
         })),
         cqcDocuments: cqcDocumentUrls,
         leaseAgreement: leaseAgreementUrl, // ✅ NEW: Added lease agreement field
+        icalUrl: icalUrl || undefined,
       });
 
       const savedProperty = await property.save();
@@ -759,13 +769,37 @@ router.get("/:id", async (req, res) => {
   const propertyId = req.params.id;
 
   try {
+    // This route is public (customers view listings without logging in),
+    // but an unpublished/draft listing must only be visible to its own
+    // host -- so we soft-decode whoever's asking without requiring a token.
+    let requesterId = null;
+    let requesterIsAdmin = false;
+    const token = req.header("Authorization")?.replace("Bearer ", "");
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        requesterId = decoded.id;
+        const requester = await User.findById(decoded.id).select("isAdmin");
+        requesterIsAdmin = Boolean(requester?.isAdmin);
+      } catch (_) {
+        // invalid/expired token -- treat the request as anonymous rather than failing it
+      }
+    }
+
+    // The cache has no notion of "who's asking", so a draft can never be
+    // served from it -- caching it risks handing it to the next anonymous
+    // visitor who hits the same URL. Cache hits are skipped entirely for
+    // inactive listings and only re-populated below when active.
     const cached = await client.get(`property:${propertyId}`);
     if (cached) {
-      return res.json({
-        success: true,
-        property: JSON.parse(cached),
-        cached: true,
-      });
+      const cachedProperty = JSON.parse(cached);
+      if (cachedProperty.isActive) {
+        return res.json({
+          success: true,
+          property: cachedProperty,
+          cached: true,
+        });
+      }
     }
 
     const property = await Property.findById(propertyId)
@@ -784,11 +818,22 @@ router.get("/:id", async (req, res) => {
       return res.status(404).json({ error: "Property not found" });
     }
 
-    await client.setEx(
-      `property:${propertyId}`,
-      3600,
-      JSON.stringify(property)
-    );
+    if (!property.isActive) {
+      const isOwner = requesterId && property.host?._id?.toString() === requesterId;
+      if (!isOwner && !requesterIsAdmin) {
+        // Same response as a genuinely missing property -- don't reveal
+        // that a draft exists at this URL to anyone but its host/admins.
+        return res.status(404).json({ error: "Property not found" });
+      }
+    }
+
+    if (property.isActive) {
+      await client.setEx(
+        `property:${propertyId}`,
+        3600,
+        JSON.stringify(property)
+      );
+    }
 
     res.json({ success: true, property, cached: false });
   } catch (err) {

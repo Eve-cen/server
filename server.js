@@ -31,6 +31,8 @@ const setupBookingExpiry = require("./utils/expirePendingBookings");
 const setupGoogleCalendarSync = require("./utils/syncGoogleCalendars");
 const setupOutlookCalendarSync = require("./utils/syncOutlookCalendars");
 const setupCalcomCalendarSync = require("./utils/syncCalcomCalendars");
+const setupCalendlyCalendarSync = require("./utils/syncCalendlyCalendars");
+const setupAppleCalendarSync = require("./utils/syncAppleCalendars");
 
 const cron = require("node-cron");
 const markCompletedBookings = require("./jobs/markCompletedBookings");
@@ -206,6 +208,7 @@ app.use("/api/verification", verificationRoutes);
 app.use("/api/drafts", draftRoutes);
 app.use("/api/admin", require("./routes/admin"));
 app.use("/api/calendar", require("./routes/calendarSync"));
+app.use("/api/host-calendar", require("./routes/hostCalendar"));
 app.use("/uploads", express.static("uploads"));
 app.use("/api/blog", require("./routes/blog"));
 
@@ -307,3 +310,5 @@ setupBookingExpiry();
 setupGoogleCalendarSync();
 setupOutlookCalendarSync();
 setupCalcomCalendarSync();
+setupCalendlyCalendarSync();
+setupAppleCalendarSync();
