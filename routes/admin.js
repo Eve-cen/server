@@ -7,6 +7,11 @@ const Booking = require("../models/Booking");
 const Property = require("../models/Property");
 const Report = require("../models/Report");
 const Payment = require("../models/Payment");
+const Review = require("../models/Review");
+const Market = require("../models/Market");
+const Category = require("../models/Category");
+const { generateInvoicePDF } = require("../utils/generateInvoice");
+const sendEmail = require("../utils/sendEmail");
 const router = express.Router();
 
 // ─── Admin login (separate from regular user login) ──────────────────────────
@@ -200,7 +205,54 @@ router.get("/reports", async (req, res) => {
     Report.find(filter).populate("reporter", "firstName lastName email").sort({ createdAt: -1 }).skip(skip).limit(parseInt(limit)),
     Report.countDocuments(filter),
   ]);
-  res.json({ reports, total, page: parseInt(page), pages: Math.ceil(total / parseInt(limit)) });
+
+  // Enrich each report with a lightweight "target" summary depending on its type,
+  // so the admin UI can show what's actually being disputed without extra round-trips.
+  const enriched = await Promise.all(
+    reports.map(async (report) => {
+      const obj = report.toObject();
+      try {
+        if (report.type === "booking") {
+          const booking = await Booking.findById(report.targetId)
+            .populate("property", "title")
+            .populate("guest", "firstName lastName displayName")
+            .populate("host", "firstName lastName displayName");
+          if (booking) {
+            obj.target = {
+              label: booking.property?.title || "Booking",
+              amount: booking.totalPrice,
+              customer: booking.guest?.displayName || `${booking.guest?.firstName || ""} ${booking.guest?.lastName || ""}`.trim(),
+              host: booking.host?.displayName || `${booking.host?.firstName || ""} ${booking.host?.lastName || ""}`.trim(),
+              bookingId: booking._id,
+            };
+          }
+        } else if (report.type === "property") {
+          const property = await Property.findById(report.targetId).populate("host", "firstName lastName displayName");
+          if (property) {
+            obj.target = {
+              label: property.title,
+              host: property.host?.displayName || `${property.host?.firstName || ""} ${property.host?.lastName || ""}`.trim(),
+            };
+          }
+        } else if (report.type === "user") {
+          const user = await User.findById(report.targetId);
+          if (user) {
+            obj.target = { label: user.displayName || `${user.firstName || ""} ${user.lastName || ""}`.trim() };
+          }
+        } else if (report.type === "review") {
+          const review = await Review.findById(report.targetId).populate("property", "title");
+          if (review) {
+            obj.target = { label: review.property?.title || "Review", host: undefined };
+          }
+        }
+      } catch {
+        // Target may have been deleted since the report was filed — leave obj.target undefined
+      }
+      return obj;
+    })
+  );
+
+  res.json({ reports: enriched, total, page: parseInt(page), pages: Math.ceil(total / parseInt(limit)) });
 });
 
 router.patch("/reports/:id", async (req, res) => {
@@ -405,6 +457,304 @@ router.post("/users/:id/apply-verified", async (req, res) => {
     user.venComeVerifiedAppliedAt = new Date();
     await user.save();
     res.json({ success: true, message: "Application submitted" });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ─── Markets ──────────────────────────────────────────────────────────────────
+router.get("/markets", async (req, res) => {
+  try {
+    const markets = await Market.find().sort({ order: 1, createdAt: 1 });
+    res.json({ markets });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+router.post("/markets", async (req, res) => {
+  try {
+    const { name, flag, cities, status, phase, order } = req.body;
+    if (!name) return res.status(400).json({ error: "Market name is required" });
+
+    const existing = await Market.findOne({ name });
+    if (existing) return res.status(400).json({ error: "A market with that name already exists" });
+
+    const market = await Market.create({
+      name,
+      flag: flag || "🌍",
+      cities: Array.isArray(cities) ? cities : [],
+      status: status || "planned",
+      phase: phase || "",
+      order: Number.isFinite(order) ? order : 0,
+    });
+    res.status(201).json({ success: true, market });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+router.patch("/markets/:id", async (req, res) => {
+  try {
+    const { name, flag, cities, status, phase, order } = req.body;
+    const update = {};
+    if (name !== undefined) update.name = name;
+    if (flag !== undefined) update.flag = flag;
+    if (cities !== undefined) update.cities = Array.isArray(cities) ? cities : [];
+    if (status !== undefined) update.status = status;
+    if (phase !== undefined) update.phase = phase;
+    if (order !== undefined) update.order = order;
+
+    const market = await Market.findByIdAndUpdate(req.params.id, update, { new: true, runValidators: true });
+    if (!market) return res.status(404).json({ error: "Market not found" });
+    res.json({ success: true, market });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+router.delete("/markets/:id", async (req, res) => {
+  try {
+    const market = await Market.findByIdAndDelete(req.params.id);
+    if (!market) return res.status(404).json({ error: "Market not found" });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ─── Invoices ─────────────────────────────────────────────────────────────────
+// Invoices aren't stored separately — every paid booking has everything needed
+// to regenerate its invoice PDF on demand, so we build the list/download/resend
+// endpoints straight off the Booking data instead of duplicating it.
+router.get("/invoices", async (req, res) => {
+  try {
+    const { page = 1, limit = 20, q } = req.query;
+    const filter = { isPaid: true };
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    let bookings = await Booking.find(filter)
+      .populate("property", "title location")
+      .populate("guest", "firstName lastName displayName email")
+      .populate("host", "firstName lastName displayName email")
+      .sort({ createdAt: -1 });
+
+    if (q) {
+      const needle = q.toLowerCase();
+      bookings = bookings.filter((b) => {
+        const invoiceNumber = `VC-${b._id.toString().slice(-8).toUpperCase()}`;
+        const guestName = b.guest?.displayName || `${b.guest?.firstName || ""} ${b.guest?.lastName || ""}`.trim();
+        const hostName = b.host?.displayName || `${b.host?.firstName || ""} ${b.host?.lastName || ""}`.trim();
+        return (
+          invoiceNumber.toLowerCase().includes(needle) ||
+          guestName.toLowerCase().includes(needle) ||
+          hostName.toLowerCase().includes(needle) ||
+          (b.property?.title || "").toLowerCase().includes(needle)
+        );
+      });
+    }
+
+    const total = bookings.length;
+    const page_ = bookings.slice(skip, skip + parseInt(limit));
+
+    const invoices = page_.map((b) => ({
+      bookingId: b._id,
+      invoiceNumber: `VC-${b._id.toString().slice(-8).toUpperCase()}`,
+      issuedAt: b.createdAt,
+      guestName: b.guest?.displayName || `${b.guest?.firstName || ""} ${b.guest?.lastName || ""}`.trim() || b.guest?.email,
+      hostName: b.host?.displayName || `${b.host?.firstName || ""} ${b.host?.lastName || ""}`.trim() || b.host?.email,
+      propertyTitle: b.property?.title || "Deleted listing",
+      amount: b.totalPrice,
+      status: b.status === "cancelled" ? "refunded" : "paid",
+    }));
+
+    res.json({ invoices, total, page: parseInt(page), pages: Math.ceil(total / parseInt(limit)) });
+  } catch (err) {
+    console.error("List invoices error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+router.get("/invoices/:bookingId/download", async (req, res) => {
+  try {
+    const booking = await Booking.findOne({ _id: req.params.bookingId, isPaid: true }).populate("property");
+    if (!booking) return res.status(404).json({ error: "Invoice not found" });
+
+    const [guest, host] = await Promise.all([
+      User.findById(booking.guest),
+      User.findById(booking.host),
+    ]);
+    if (!guest || !host) return res.status(404).json({ error: "Guest or host no longer exists" });
+
+    const pdfBuffer = await generateInvoicePDF(booking, booking.property, guest, host);
+    const invoiceNumber = `VC-${booking._id.toString().slice(-8).toUpperCase()}`;
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="VenCome-Invoice-${invoiceNumber}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error("Download invoice error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+router.post("/invoices/:bookingId/resend", async (req, res) => {
+  try {
+    const booking = await Booking.findOne({ _id: req.params.bookingId, isPaid: true }).populate("property");
+    if (!booking) return res.status(404).json({ error: "Invoice not found" });
+
+    const [guest, host] = await Promise.all([
+      User.findById(booking.guest),
+      User.findById(booking.host),
+    ]);
+    if (!guest || !host) return res.status(404).json({ error: "Guest or host no longer exists" });
+
+    const pdfBuffer = await generateInvoicePDF(booking, booking.property, guest, host);
+    const invoiceNumber = `VC-${booking._id.toString().slice(-8).toUpperCase()}`;
+
+    await sendEmail({
+      to: guest.email,
+      subject: `Your VenCome invoice ${invoiceNumber}`,
+      attachments: [
+        {
+          filename: `VenCome-Invoice-${invoiceNumber}.pdf`,
+          content: pdfBuffer,
+          contentType: "application/pdf",
+        },
+      ],
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+          <img src="https://vencome.com/VenCome.jpg" alt="VenCome" style="height:40px;margin-bottom:24px;" />
+          <h2 style="color:#0A1628;">Your invoice, resent</h2>
+          <p>Hi ${guest.displayName || guest.firstName || "there"},</p>
+          <p>Attached is your invoice <strong>${invoiceNumber}</strong> for ${booking.property?.title || "your booking"}.</p>
+          <p style="color:#6B7280;font-size:13px;margin-top:24px;">The VenCome Team</p>
+        </div>
+      `,
+    });
+
+    res.json({ success: true, message: "Invoice resent" });
+  } catch (err) {
+    console.error("Resend invoice error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ─── Team ─────────────────────────────────────────────────────────────────────
+router.get("/team", async (req, res) => {
+  try {
+    const team = await User.find({ isAdmin: true })
+      .select("firstName lastName displayName email profileImage adminTitle createdAt")
+      .sort({ createdAt: 1 });
+    res.json({ team });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+router.patch("/team/:id/title", async (req, res) => {
+  try {
+    const { adminTitle } = req.body;
+    const user = await User.findOneAndUpdate(
+      { _id: req.params.id, isAdmin: true },
+      { adminTitle: adminTitle || "" },
+      { new: true }
+    ).select("firstName lastName displayName email profileImage adminTitle createdAt");
+    if (!user) return res.status(404).json({ error: "Admin user not found" });
+    res.json({ success: true, user });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Grant admin access to an existing user by email (adds them to the team)
+router.post("/team/invite", async (req, res) => {
+  try {
+    const { email, adminTitle } = req.body;
+    if (!email) return res.status(400).json({ error: "Email is required" });
+
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    if (!user) return res.status(404).json({ error: "No VenCome user found with that email — they need an account first" });
+    if (user.isAdmin) return res.status(400).json({ error: "This user is already a team member" });
+
+    user.isAdmin = true;
+    user.adminTitle = adminTitle || "";
+    await user.save();
+
+    res.json({ success: true, user: { _id: user._id, email: user.email, displayName: user.displayName, adminTitle: user.adminTitle } });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ─── Categories ───────────────────────────────────────────────────────────────
+router.get("/categories", async (req, res) => {
+  try {
+    const categories = await Category.find().sort({ createdAt: 1 });
+    const withCounts = await Promise.all(
+      categories.map(async (cat) => {
+        const listingCount = await Property.countDocuments({
+          $or: [{ category: cat._id }, { categories: cat._id }],
+        });
+        return { ...cat.toObject(), listingCount };
+      })
+    );
+    res.json({ categories: withCounts });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+router.post("/categories", async (req, res) => {
+  try {
+    const { name, description, image, status } = req.body;
+    if (!name || !description) return res.status(400).json({ error: "Name and description are required" });
+
+    const existing = await Category.findOne({ name });
+    if (existing) return res.status(400).json({ error: "A category with that name already exists" });
+
+    const category = await Category.create({
+      name,
+      description,
+      image: image || undefined,
+      status: status === "draft" ? "draft" : "published",
+    });
+    res.status(201).json({ success: true, category });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+router.patch("/categories/:id", async (req, res) => {
+  try {
+    const { name, description, image, status } = req.body;
+    const update = {};
+    if (name !== undefined) update.name = name;
+    if (description !== undefined) update.description = description;
+    if (image !== undefined) update.image = image;
+    if (status !== undefined) update.status = status;
+
+    const category = await Category.findByIdAndUpdate(req.params.id, update, { new: true, runValidators: true });
+    if (!category) return res.status(404).json({ error: "Category not found" });
+    res.json({ success: true, category });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+router.delete("/categories/:id", async (req, res) => {
+  try {
+    const listingCount = await Property.countDocuments({
+      $or: [{ category: req.params.id }, { categories: req.params.id }],
+    });
+    if (listingCount > 0) {
+      return res.status(400).json({
+        error: `${listingCount} listing(s) use this category. Reassign or remove them before deleting it.`,
+      });
+    }
+    const category = await Category.findByIdAndDelete(req.params.id);
+    if (!category) return res.status(404).json({ error: "Category not found" });
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: "Server error" });
   }

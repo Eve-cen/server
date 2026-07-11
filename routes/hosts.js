@@ -1,7 +1,72 @@
 const express = require("express");
 const User = require("../models/User");
 const Property = require("../models/Property");
+const auth = require("../middleware/auth");
 const router = express.Router();
+
+// ✅ 5-step host onboarding checklist — computed live from real account state,
+// not tracked separately, so it can never drift out of sync with reality.
+router.get("/me/onboarding-checklist", auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const listingCount = await Property.countDocuments({ host: req.user.id });
+    const calendarConnected = listingCount
+      ? (await Property.countDocuments({ host: req.user.id, icalUrl: { $exists: true, $ne: null } })) > 0
+      : false;
+
+    const steps = [
+      {
+        key: "profile",
+        label: "Complete your profile",
+        description: "Add your name and phone number so guests and hosts can reach you",
+        completed: !!(user.firstName && user.lastName && user.phoneNumber),
+        href: "/profile",
+      },
+      {
+        key: "payout",
+        label: "Add a payout method",
+        description: "Connect a bank account so you can get paid after bookings",
+        completed: (user.payoutMethods || []).length > 0,
+        href: "/settings",
+      },
+      {
+        key: "listing",
+        label: "Create your first listing",
+        description: "List your first space to start receiving bookings",
+        completed: listingCount > 0,
+        href: "/host/create",
+      },
+      {
+        key: "calendar",
+        label: "Connect your calendar",
+        description: "Sync an external calendar so double-bookings can't happen",
+        completed: calendarConnected,
+        href: "/host/listings",
+      },
+      {
+        key: "verified",
+        label: "Get verified",
+        description: "Verify your identity or business to build trust with guests",
+        completed: !!(user.isIdentityVerified || user.businessVerified),
+        href: "/settings",
+      },
+    ];
+
+    const completedCount = steps.filter((s) => s.completed).length;
+
+    res.json({
+      steps,
+      completedCount,
+      totalSteps: steps.length,
+      allComplete: completedCount === steps.length,
+    });
+  } catch (err) {
+    console.error("Onboarding checklist error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
 
 router.get("/:hostId", async (req, res) => {
   try {

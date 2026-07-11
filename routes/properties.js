@@ -10,6 +10,7 @@ const { deleteFromR2 } = require("../utils/uploadService");
 const validatePricing = require("../middleware/validatePricing");
 const Draft = require("../models/Draft");
 const User = require("../models/User");
+const Report = require("../models/Report");
 const makeUserHost = require("../utils/stripeConnect");
 const sendEmail = require("../utils/sendEmail");
 const { client } = require("../utils/redisClient");
@@ -578,7 +579,23 @@ router.get("/search", async (req, res) => {
       if (max !== undefined) query["minRentalDays"].$lte = max;
     }
 
-    // TODO: Implement proper availability filtering
+    // Exclude properties with any blocked date range overlapping the requested stay.
+    // blockedDates is kept in sync with confirmed bookings (pushed on confirm, pulled
+    // on decline/cancel), so this single check covers both manual blocks and bookings.
+    if (checkIn && checkOut) {
+      const requestedStart = new Date(checkIn);
+      const requestedEnd = new Date(checkOut);
+      if (!Number.isNaN(requestedStart.getTime()) && !Number.isNaN(requestedEnd.getTime())) {
+        query.blockedDates = {
+          $not: {
+            $elemMatch: {
+              start: { $lt: requestedEnd },
+              end: { $gt: requestedStart },
+            },
+          },
+        };
+      }
+    }
 
     const properties = await Property.find(query)
       .populate("host", "firstName lastName displayName email")
@@ -795,16 +812,14 @@ router.get("/:id/availability", async (req, res) => {
       return res.status(404).json({ error: "Property not found" });
     }
 
-    // TODO: merge in confirmed bookings from your Booking model when ready
-    // const bookings = await Booking.find({ property: req.params.id, status: "confirmed" })
-    //   .select("checkIn checkOut");
-
+    // Note: blockedDates already includes confirmed bookings — bookings.js pushes
+    // a blockedDates entry (tagged with bookingId) on confirmation and pulls it on
+    // decline/cancellation, so no separate Booking merge is needed here.
     res.json({
       success: true,
       availability: property.availability,
       blockedDates: property.blockedDates,
       bookingSettings: property.bookingSettings,
-      // bookedRanges: bookings.map(b => ({ start: b.checkIn, end: b.checkOut })),
     });
   } catch (err) {
     console.error("Error fetching availability:", err);
@@ -1038,21 +1053,30 @@ router.patch("/:id/availability", auth, async (req, res) => {
       });
     }
 
-    const { blockedDates, availability } = req.body;
+    const { blockedDates, availability, bookingSettings } = req.body;
 
     if (blockedDates !== undefined) {
       if (!Array.isArray(blockedDates)) {
         return res.status(400).json({ error: "blockedDates must be an array" });
       }
+      // Preserve bookingId/externalEventId so booking-derived and iCal-synced
+      // blocks stay tagged — dropping them here would break the auto-unblock
+      // on decline/cancel and the iCal dedup logic.
       property.blockedDates = blockedDates.map((d) => ({
         start: new Date(d.start),
         end: new Date(d.end),
-        reason: d.reason || "blocked",
+        reason: d.reason || "personal",
+        bookingId: d.bookingId || undefined,
+        externalEventId: d.externalEventId || undefined,
       }));
     }
 
     if (availability !== undefined) {
-      property.availability = availability;
+      property.availability = { ...(property.availability?.toObject?.() || property.availability || {}), ...availability };
+    }
+
+    if (bookingSettings !== undefined) {
+      property.bookingSettings = { ...(property.bookingSettings?.toObject?.() || property.bookingSettings || {}), ...bookingSettings };
     }
 
     await property.save();
@@ -1063,6 +1087,7 @@ router.patch("/:id/availability", auth, async (req, res) => {
       message: "Availability updated successfully",
       blockedDates: property.blockedDates,
       availability: property.availability,
+      bookingSettings: property.bookingSettings,
     });
   } catch (err) {
     console.error("Error updating availability:", err);
@@ -1070,6 +1095,55 @@ router.patch("/:id/availability", auth, async (req, res) => {
       return res.status(400).json({ error: "Invalid property ID format" });
     }
     res.status(500).json({ error: "Server error", details: err.message });
+  }
+});
+
+// ✅ Set or clear the external calendar (iCal) URL for a listing
+router.patch("/:id/calendar-sync", auth, async (req, res) => {
+  try {
+    const property = await Property.findById(req.params.id);
+    if (!property) return res.status(404).json({ error: "Property not found" });
+
+    if (property.host.toString() !== req.user.id) {
+      return res.status(403).json({ error: "Unauthorized: You are not the host of this property" });
+    }
+
+    const { icalUrl } = req.body;
+    if (icalUrl && !/^https?:\/\//i.test(icalUrl)) {
+      return res.status(400).json({ error: "Calendar URL must start with http:// or https://" });
+    }
+
+    property.icalUrl = icalUrl || undefined;
+    property.icalLastSyncedAt = undefined;
+    property.icalLastSyncError = undefined;
+    await property.save();
+
+    res.json({ success: true, icalUrl: property.icalUrl });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ✅ Manually trigger a sync of the connected external calendar
+router.post("/:id/calendar-sync/run", auth, async (req, res) => {
+  try {
+    const property = await Property.findById(req.params.id);
+    if (!property) return res.status(404).json({ error: "Property not found" });
+
+    if (property.host.toString() !== req.user.id) {
+      return res.status(403).json({ error: "Unauthorized: You are not the host of this property" });
+    }
+    if (!property.icalUrl) {
+      return res.status(400).json({ error: "No calendar URL connected for this listing" });
+    }
+
+    const syncExternalCalendar = require("../utils/syncIcal");
+    const result = await syncExternalCalendar(property._id);
+    await client.del(`property:${req.params.id}`);
+
+    res.json({ success: true, ...result, lastSyncedAt: new Date() });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to sync calendar", details: err.message });
   }
 });
 
@@ -1132,10 +1206,18 @@ router.post("/:id/report", auth, async (req, res) => {
         .json({ error: "You cannot report your own property" });
     }
 
-    // TODO: persist to a Report model when you create one
-    // await Report.create({ property: property._id, reportedBy: req.user.id, reason, description });
+    const REPORT_REASONS = ["spam", "inappropriate", "fraud", "harassment", "fake_listing", "other"];
+    const normalizedReason = REPORT_REASONS.includes(reason) ? reason : "other";
 
-    // Notify admins by email in the meantime
+    await Report.create({
+      reporter: req.user.id,
+      type: "property",
+      targetId: property._id,
+      reason: normalizedReason,
+      description: normalizedReason === reason ? description : `${reason}${description ? ": " + description : ""}`,
+    });
+
+    // Notify admins by email too, for immediate visibility
     sendEmail({
       to: process.env.ADMIN_EMAIL,
       subject: `Property reported: ${property.title}`,

@@ -3,6 +3,8 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const User = require("../models/User");
+const Property = require("../models/Property");
+const Booking = require("../models/Booking");
 const sendEmail = require("../utils/sendEmail");
 const auth = require("../middleware/auth");
 const { authLimiter, otpLimiter } = require("../middleware/rateLimiter");
@@ -448,8 +450,35 @@ router.post("/reset-password", async (req, res) => {
 // ─── DELETE /auth/account ─────────────────────────────────────────────────────
 router.delete("/account", auth, async (req, res) => {
   try {
-    await User.findByIdAndDelete(req.user.id);
-    await redisClient.del(`refresh:${req.user.id}`);
+    const userId = req.user.id;
+
+    const [activeListings, unresolvedBookings, unpaidOutBookings] = await Promise.all([
+      Property.countDocuments({ host: userId, isActive: true }),
+      Booking.countDocuments({
+        $or: [{ host: userId }, { guest: userId }],
+        status: { $in: ["pending", "confirmed"] },
+      }),
+      Booking.countDocuments({ host: userId, isPaid: true, escrowReleased: false }),
+    ]);
+
+    if (activeListings > 0) {
+      return res.status(400).json({
+        error: `You have ${activeListings} active listing(s). Deactivate or delete them before closing your account.`,
+      });
+    }
+    if (unresolvedBookings > 0) {
+      return res.status(400).json({
+        error: `You have ${unresolvedBookings} pending or confirmed booking(s). These must be completed or cancelled before closing your account.`,
+      });
+    }
+    if (unpaidOutBookings > 0) {
+      return res.status(400).json({
+        error: `You have ${unpaidOutBookings} booking(s) with a payout still in escrow. Your account can't be closed until those payouts have been released.`,
+      });
+    }
+
+    await User.findByIdAndDelete(userId);
+    await redisClient.del(`refresh:${userId}`);
     res.json({ message: "Account deleted successfully" });
   } catch {
     res.status(500).json({ error: "Server error" });

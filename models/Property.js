@@ -78,6 +78,10 @@ const propertySchema = new mongoose.Schema(
         enum: ["flexible", "moderate", "strict", "non-refundable"],
         default: "moderate",
       },
+      // Buffer time (minutes) blocked before/after each booking so hosts get
+      // clean-up/prep time. Surfaced in EditSpace.jsx and PropertyAvailability.jsx.
+      bufferBefore: { type: Number, default: 0 },
+      bufferAfter: { type: Number, default: 0 },
     },
     firstFiveApproved: { type: Number, default: 0 },
     isActive: { type: Boolean, default: true },
@@ -112,6 +116,9 @@ const propertySchema = new mongoose.Schema(
       closeTime: { type: String, default: "" },
       minNotice: { type: String, default: "" },
       instantBook: { type: Boolean, default: false },
+      maxAdvance: { type: String, default: "" },
+      weekendAvailable: { type: Boolean, default: true },
+      sameDayCutoff: { type: String, default: "" },
     },
     customAvailability: {
       days: [
@@ -145,6 +152,8 @@ const propertySchema = new mongoose.Schema(
       },
     ],
     icalUrl: String,
+    icalLastSyncedAt: Date,
+    icalLastSyncError: String,
     leaseAgreement: {
       type: String,
       default: null,

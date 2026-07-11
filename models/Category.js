@@ -19,6 +19,7 @@ const categorySchema = new mongoose.Schema(
     },
     subcategories: [subCategorySchema],
     description: { type: String, required: true },
+    status: { type: String, enum: ["draft", "published"], default: "published" },
   },
   { timestamps: true }
 );

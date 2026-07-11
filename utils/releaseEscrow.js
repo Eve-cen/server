@@ -12,6 +12,7 @@ module.exports = function setupEscrowRelease() {
         status: "completed",
         isPaid: true,
         escrowReleased: false,
+        disputeFrozen: { $ne: true },
         checkOut: { $lt: new Date(now.getTime() - 24 * 60 * 60 * 1000) },
       }).populate("host");
 
@@ -31,7 +32,7 @@ module.exports = function setupEscrowRelease() {
         try {
           const transfer = await stripe.transfers.create({
             amount: amountToHost,
-            currency: "usd",
+            currency: "gbp",
             destination: host.stripeAccountId,
             transfer_group: booking._id.toString(),
             description: `Payout for booking ${booking._id} after 24hr escrow`,
