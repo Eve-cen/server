@@ -4,6 +4,7 @@ const User = require("../models/User");
 const auth = require("../middleware/auth");
 const googleCalendar = require("../utils/googleCalendar");
 const outlookCalendar = require("../utils/outlookCalendar");
+const calcomCalendar = require("../utils/calcomCalendar");
 const router = express.Router();
 
 // GET /calendar/google/connect — returns the Google consent screen URL.
@@ -201,6 +202,56 @@ router.post("/outlook/disconnect", auth, async (req, res) => {
   try {
     await User.findByIdAndUpdate(req.user.id, {
       outlookCalendar: { connected: false, refreshToken: null, email: null },
+    });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── Cal.com — API key paste instead of OAuth (see utils/calcomCalendar.js) ───
+
+router.post("/calcom/connect", auth, async (req, res) => {
+  try {
+    const { apiKey } = req.body;
+    if (!apiKey) return res.status(400).json({ error: "API key is required" });
+
+    const calcomUser = await calcomCalendar.verifyApiKey(apiKey);
+
+    await User.findByIdAndUpdate(req.user.id, {
+      calcom: {
+        connected: true,
+        apiKey,
+        username: calcomUser?.username || calcomUser?.email || null,
+        connectedAt: new Date(),
+        lastSyncedAt: null,
+        lastSyncError: null,
+      },
+    });
+
+    res.json({ success: true, username: calcomUser?.username });
+  } catch (err) {
+    console.error("Cal.com connect error:", err.message);
+    res.status(400).json({ error: "Couldn't verify that Cal.com API key" });
+  }
+});
+
+router.get("/calcom/status", auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select("calcom");
+    const status = user?.calcom
+      ? { ...user.calcom.toObject(), apiKey: undefined } // never send the key back
+      : { connected: false };
+    res.json(status);
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+router.post("/calcom/disconnect", auth, async (req, res) => {
+  try {
+    await User.findByIdAndUpdate(req.user.id, {
+      calcom: { connected: false, apiKey: null, username: null },
     });
     res.json({ success: true });
   } catch (err) {

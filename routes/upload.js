@@ -27,9 +27,15 @@ const upload = multer({
     fileSize: 100 * 1024 * 1024, // 100MB limit
   },
   fileFilter: (req, file, cb) => {
-    // Accept images only (optional - remove if you want all file types)
-    if (!file.mimetype.startsWith("image/")) {
-      return cb(new Error("Only image files are allowed!"), false);
+    // Images (for draft photos) plus PDF/DOC/DOCX (for draft lease agreements)
+    // — same set of types the final property-creation upload already accepts.
+    const allowedMimeTypes = [
+      "application/pdf",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ];
+    if (!file.mimetype.startsWith("image/") && !allowedMimeTypes.includes(file.mimetype)) {
+      return cb(new Error("Only image, PDF, DOC, and DOCX files are allowed!"), false);
     }
     cb(null, true);
   },

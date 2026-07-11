@@ -8,7 +8,6 @@ const auth = require("../middleware/auth");
 const uploadToR2 = require("../utils/uploadService");
 const { deleteFromR2 } = require("../utils/uploadService");
 const validatePricing = require("../middleware/validatePricing");
-const Draft = require("../models/Draft");
 const User = require("../models/User");
 const Report = require("../models/Report");
 const makeUserHost = require("../utils/stripeConnect");
@@ -281,7 +280,7 @@ router.post(
       }
 
       // ✅ NEW: Handle lease agreement upload
-      let leaseAgreementUrl = null;
+      let leaseAgreementUrl = req.body.existingLeaseAgreement || null;
       const leaseFiles = req.files?.leaseFile || [];
       if (leaseFiles.length > 0) {
         try {
@@ -296,19 +295,19 @@ router.post(
         }
       }
 
-      // ── Handle draft images ──
-      let draftImages = [];
-      if (req.body.draftId) {
-        const draft = await Draft.findById(req.body.draftId);
-        draftImages = draft?.images || [];
+      // ── Images already uploaded earlier in this session (e.g. resumed from
+      // a saved draft) — the client sends their URLs directly since it's the
+      // frontend's current form state that reflects any adds/removes, not a
+      // stale draft record. ──
+      let existingImages = [];
+      if (req.body.existingImages) {
+        try {
+          existingImages = JSON.parse(req.body.existingImages);
+        } catch (err) {
+          existingImages = [];
+        }
       }
-      const removedImages = req.body.removedImages
-        ? JSON.parse(req.body.removedImages)
-        : [];
-      draftImages = draftImages.filter(
-        (img) => !removedImages.includes(img.filename)
-      );
-      const allImages = [...draftImages.map((img) => img.url), ...r2ImageUrls];
+      const allImages = [...existingImages, ...r2ImageUrls];
       const coverImageIndex = parseInt(req.body.coverImageIndex) || 0;
       const coverImage =
         allImages.length > 0 ? allImages[coverImageIndex] || allImages[0] : null;
