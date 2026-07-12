@@ -19,6 +19,23 @@ const bookingSchema = new mongoose.Schema(
     totalPrice: { type: Number, required: true },
     totalNights: Number,
     totalHours: Number,
+    // Duration type this specific booking was made under (a property can
+    // have multiple pricing tiers enabled, so this isn't always the
+    // property's default pricingType) and the matching unit count -- e.g.
+    // pricingUnit: "week", totalUnits: 3 for a 3-week booking. This is the
+    // single source of truth the UI uses to render an explicit breakdown
+    // ("3 weeks × £200/week = £600") for every duration type, not just
+    // daily/hourly (which totalNights/totalHours alone could already cover).
+    pricingUnit: { type: String, enum: ["hour", "day", "week", "month", "year"] },
+    totalUnits: Number,
+    // Permanent record of the host's listing-specific terms this customer
+    // agreed to at checkout (separate from VenCome's platform Terms &
+    // Conditions). The exact text is snapshotted here rather than just
+    // referencing the live Property.listingTerms field, since the host
+    // could edit or clear their terms later and this must stay an accurate
+    // record of what was actually agreed to, by whom, and when.
+    listingTermsSnapshot: String,
+    listingTermsAgreedAt: Date,
     status: {
       type: String,
       enum: ["pending", "confirmed", "declined", "cancelled", "completed"],

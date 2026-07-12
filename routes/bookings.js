@@ -111,7 +111,7 @@ router.post(
   },
   async (req, res) => {
     const extras = JSON.parse(req.body.extras || "[]");
-    const { propertyId, checkIn, checkOut, guests, pricingUnit } = req.body;
+    const { propertyId, checkIn, checkOut, guests, pricingUnit, agreedToTerms } = req.body;
     const guestId = req.user.id;
 
     // 1. Find property
@@ -123,6 +123,18 @@ router.post(
       return res
         .status(404)
         .json({ error: "Property not found or unavailable" });
+    }
+
+    // If the host has set listing-specific terms, the customer must have
+    // agreed to them (checkbox ticked in the post-click terms gate on the
+    // frontend) before the booking can be created at all. If the listing
+    // has no terms, this is skipped entirely -- agreedToTerms won't even be
+    // sent by the frontend in that case.
+    if (property.listingTerms?.trim() && agreedToTerms !== "true") {
+      if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+      return res.status(400).json({
+        error: "You must agree to the host's listing terms before booking.",
+      });
     }
 
     // ✅ CATEGORY CHECK BEFORE ANY PDF UPLOAD
@@ -254,12 +266,42 @@ router.post(
         }
       }
 
-      // 5c. Check open hours — if host has set openTime/closeTime,
-      // booking start and end must fall within those hours
+      // Resolve daily/hourly price and which duration type this booking
+      // actually is. Needed here (not just for pricing below) because the
+      // open-hours check right after this must only ever apply to HOURLY
+      // bookings -- a per-day/week/month/year booking isn't tied to a
+      // single hour-of-day window, so it should never be blocked by one.
+      const dailyPrice = Number(property.pricing.weekdayPrice) ||
+                         Number(property.pricing.daily) || 0;
+      const hourlyPrice = Number(property.pricing.hourlyPrice) ||
+                          Number(property.pricing.hourly) || 0;
+
+      // Use explicit pricingUnit from frontend if provided,
+      // otherwise fall back to auto-detection
+      const effectivePricingType = (() => {
+        if (pricingUnit === "hour") return "HOURLY";
+        if (pricingUnit === "day") return "DAILY";
+        if (pricingUnit === "week") return "WEEKLY";
+        if (pricingUnit === "month") return "MONTHLY";
+        if (pricingUnit === "year") return "ANNUAL";
+        // Fallback: auto-detect from property pricing config
+        if (property.pricing.pricingType === "HOURLY") return "HOURLY";
+        if (property.pricing.pricingType === "DAILY") {
+          return dailyPrice > 0 ? "DAILY" : hourlyPrice > 0 ? "HOURLY" : "DAILY";
+        }
+        if (dailyPrice > 0) return "DAILY";
+        if (hourlyPrice > 0) return "HOURLY";
+        return "DAILY";
+      })();
+
+      // 5c. Check open hours — only applies to HOURLY bookings. Daily,
+      // weekly, monthly, and annual bookings are for the full day(s)
+      // selected and must not be blocked by a listing's hour-of-day
+      // opening window (that only makes sense for hourly slots).
       const openTime = property.availability?.openTime;
       const closeTime = property.availability?.closeTime;
 
-      if (openTime && closeTime) {
+      if (effectivePricingType === "HOURLY" && openTime && closeTime) {
         const [openH, openM] = openTime.split(":").map(Number);
         const [closeH, closeM] = closeTime.split(":").map(Number);
 
@@ -284,34 +326,11 @@ router.post(
       let totalPrice = 0;
       let totalNights = 0;
       let totalHours = 0;
+      let totalUnits = 0;
 
       const pricingType = property.pricing.pricingType || "DAILY";
-
-      // Resolve daily price from either field
-      const dailyPrice = Number(property.pricing.weekdayPrice) ||
-                         Number(property.pricing.daily) || 0;
-
-      // Resolve hourly price from either field
-      const hourlyPrice = Number(property.pricing.hourlyPrice) ||
-                          Number(property.pricing.hourly) || 0;
-
-      // Use explicit pricingUnit from frontend if provided,
-      // otherwise fall back to auto-detection
-      const effectivePricingType = (() => {
-        if (pricingUnit === "hour") return "HOURLY";
-        if (pricingUnit === "day") return "DAILY";
-        if (pricingUnit === "week") return "WEEKLY";
-        if (pricingUnit === "month") return "MONTHLY";
-        if (pricingUnit === "year") return "ANNUAL";
-        // Fallback: auto-detect from property pricing config
-        if (property.pricing.pricingType === "HOURLY") return "HOURLY";
-        if (property.pricing.pricingType === "DAILY") {
-          return dailyPrice > 0 ? "DAILY" : hourlyPrice > 0 ? "HOURLY" : "DAILY";
-        }
-        if (dailyPrice > 0) return "DAILY";
-        if (hourlyPrice > 0) return "HOURLY";
-        return "DAILY";
-      })();
+      // dailyPrice, hourlyPrice, and effectivePricingType are already
+      // resolved above (needed early for the open-hours gate in 5c).
 
       const diffMs = checkOutDate - checkInDate;
       const diffHours = diffMs / (1000 * 60 * 60);
@@ -328,6 +347,7 @@ router.post(
           return res.status(400).json({ error: "Hourly price not configured for this space" });
         }
         totalHours = Math.ceil(diffHours * 10) / 10;
+        totalUnits = totalHours;
         totalPrice = Math.round(totalHours * hourlyPrice * 100) / 100;
 
       } else if (effectivePricingType === "DAILY") {
@@ -339,6 +359,7 @@ router.post(
         const checkOutDay = new Date(checkOutDate.getFullYear(), checkOutDate.getMonth(), checkOutDate.getDate());
         const calendarDays = Math.round((checkOutDay - checkInDay) / (1000 * 60 * 60 * 24));
         totalNights = Math.max(1, calendarDays);
+        totalUnits = totalNights;
         totalPrice = totalNights * dailyPrice;
 
       } else if (effectivePricingType === "WEEKLY") {
@@ -348,8 +369,8 @@ router.post(
         const checkInDay = new Date(checkInDate.getFullYear(), checkInDate.getMonth(), checkInDate.getDate());
         const checkOutDay = new Date(checkOutDate.getFullYear(), checkOutDate.getMonth(), checkOutDate.getDate());
         const calendarDays = Math.round((checkOutDay - checkInDay) / (1000 * 60 * 60 * 24));
-        const weeks = Math.max(1, Math.ceil(calendarDays / 7));
-        totalPrice = weeks * weeklyPrice;
+        totalUnits = Math.max(1, Math.ceil(calendarDays / 7));
+        totalPrice = totalUnits * weeklyPrice;
 
       } else if (effectivePricingType === "MONTHLY") {
         if (monthlyPrice <= 0) {
@@ -358,8 +379,8 @@ router.post(
         const checkInDay = new Date(checkInDate.getFullYear(), checkInDate.getMonth(), checkInDate.getDate());
         const checkOutDay = new Date(checkOutDate.getFullYear(), checkOutDate.getMonth(), checkOutDate.getDate());
         const calendarDays = Math.round((checkOutDay - checkInDay) / (1000 * 60 * 60 * 24));
-        const months = Math.max(1, Math.ceil(calendarDays / 31));
-        totalPrice = months * monthlyPrice;
+        totalUnits = Math.max(1, Math.ceil(calendarDays / 31));
+        totalPrice = totalUnits * monthlyPrice;
 
       } else if (effectivePricingType === "ANNUAL") {
         if (annualPrice <= 0) {
@@ -368,8 +389,8 @@ router.post(
         const checkInDay = new Date(checkInDate.getFullYear(), checkInDate.getMonth(), checkInDate.getDate());
         const checkOutDay = new Date(checkOutDate.getFullYear(), checkOutDate.getMonth(), checkOutDate.getDate());
         const calendarDays = Math.round((checkOutDay - checkInDay) / (1000 * 60 * 60 * 24));
-        const years = Math.max(1, Math.ceil(calendarDays / 366));
-        totalPrice = years * annualPrice;
+        totalUnits = Math.max(1, Math.ceil(calendarDays / 366));
+        totalPrice = totalUnits * annualPrice;
 
       } else {
         return res.status(400).json({ error: "Invalid pricing type" });
@@ -420,12 +441,33 @@ router.post(
         platformFee,
         hostAmount,
         discountApplied: Math.round(discount * 100) / 100,
+        // Gated on effectivePricingType (what this booking actually used),
+        // not property.pricing.pricingType (the property's single default
+        // tier) -- a property can have multiple pricing tiers enabled, so
+        // those can differ, and using the wrong one silently dropped
+        // totalNights/totalHours for any booking made on a non-default tier.
         totalNights:
-          property.pricing.pricingType === "DAILY" ? totalNights : undefined,
+          effectivePricingType === "DAILY" ? totalNights : undefined,
         totalHours:
-          property.pricing.pricingType === "HOURLY"
+          effectivePricingType === "HOURLY"
             ? Number(totalHours.toFixed(2))
             : undefined,
+        pricingUnit: pricingUnit || (
+          {
+            HOURLY: "hour",
+            DAILY: "day",
+            WEEKLY: "week",
+            MONTHLY: "month",
+            ANNUAL: "year",
+          }[effectivePricingType]
+        ),
+        totalUnits,
+        // Snapshot the exact terms text the customer agreed to (validated
+        // above), plus when -- guest identity is already captured via the
+        // `guest` field above, so together this is a permanent record of
+        // what was agreed to, when, and by whom.
+        listingTermsSnapshot: property.listingTerms?.trim() || undefined,
+        listingTermsAgreedAt: property.listingTerms?.trim() ? new Date() : undefined,
         status: property.bookingSettings?.instantBook ? "confirmed" : "pending",
         licensePdfUrl,
       });

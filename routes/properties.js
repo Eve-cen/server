@@ -165,6 +165,10 @@ router.post(
         return res.status(400).json({ error: "iCal URL must start with http:// or https://" });
       }
 
+      // Optional listing-specific terms (separate from the platform-wide
+      // Terms & Conditions) -- plain text, not required.
+      const listingTerms = typeof req.body.listingTerms === "string" ? req.body.listingTerms.trim() : "";
+
       // ── Required fields check ──
       if (!title || !description) {
         cleanupTempFiles([
@@ -362,6 +366,7 @@ router.post(
         cqcDocuments: cqcDocumentUrls,
         leaseAgreement: leaseAgreementUrl, // ✅ NEW: Added lease agreement field
         icalUrl: icalUrl || undefined,
+        listingTerms,
       });
 
       const savedProperty = await property.save();
@@ -1024,6 +1029,9 @@ router.put("/:id", auth, upload.array("images", 45), async (req, res) => {
         end: new Date(d.end),
         reason: d.reason || "blocked",
       }));
+    }
+    if (req.body.listingTerms !== undefined) {
+      property.listingTerms = String(req.body.listingTerms).trim();
     }
 
     const updatedProperty = await property.save();

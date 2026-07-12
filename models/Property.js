@@ -5,6 +5,12 @@ const propertySchema = new mongoose.Schema(
     title: { type: String, required: true, trim: true },
     description: { type: String, required: true },
     whatsIncluded: { type: String, default: "" },
+    // Optional host-authored terms for this specific listing (e.g. usage
+    // restrictions, deposit rules). Separate from and in addition to
+    // VenCome's platform-wide Terms & Conditions -- shown as a "Read More"
+    // popup on the listing page, and the customer must agree to it after
+    // clicking Request to Book/Book Now before the booking is created.
+    listingTerms: { type: String, default: "" },
     location: {
       address: { type: String, required: true },
       city: { type: String, required: true },
@@ -158,6 +164,12 @@ const propertySchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    // Optional host-written terms specific to this listing (e.g. equipment
+    // handling, cancellation nuances, access rules). Separate from and in
+    // addition to VenCome's platform-wide Terms & Conditions -- shown as a
+    // "Read More" preview on the listing page, and gated behind a checkbox
+    // at checkout (see Booking.listingTermsSnapshot for the agreement record).
+    listingTerms: { type: String, default: "" },
   },
   { timestamps: true }
 );
