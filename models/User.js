@@ -94,6 +94,7 @@ const userSchema = new mongoose.Schema(
     venComeVerifiedAt: { type: Date, default: null },
     venComeVerifiedAppliedAt: { type: Date, default: null },
     isHost: { type: Boolean, default: false },
+    newsletterOptIn: { type: Boolean, default: false },
     isAdmin: { type: Boolean, default: false },
     adminTitle: { type: String, default: "" }, // e.g. "Founder", "Tech Lead" — display only
     isBanned: { type: Boolean, default: false },

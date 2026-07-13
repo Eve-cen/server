@@ -44,7 +44,7 @@ router.get("/me", auth, async (req, res) => {
 
 // ─── POST /auth/signup ────────────────────────────────────────────────────────
 router.post("/signup", authLimiter, async (req, res) => {
-  const { email, password, isHost } = req.body;
+  const { email, password, isHost, newsletterOptIn } = req.body;
   if (!email || !password)
     return res.status(400).json({ error: "Email and password are required" });
   if (password.length < 8)
@@ -66,6 +66,7 @@ router.post("/signup", authLimiter, async (req, res) => {
       password: hashedPassword,
       isVerified: false,
       isHost: !!isHost,
+      newsletterOptIn: !!newsletterOptIn,
     });
     await user.save();
 
@@ -269,7 +270,7 @@ router.post("/logout", auth, async (req, res) => {
 
 // ─── POST /auth/google ────────────────────────────────────────────────────────
 router.post("/google", async (req, res) => {
-  const { token, isHost } = req.body;
+  const { token, isHost, newsletterOptIn } = req.body;
   if (!token)
     return res.status(400).json({ error: "Google token is required" });
 
@@ -295,6 +296,7 @@ router.post("/google", async (req, res) => {
         isEmailVerified: true,
         isVerified: true,
         isHost: !!isHost,
+        newsletterOptIn: !!newsletterOptIn,
       });
       await user.save();
 
