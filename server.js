@@ -209,6 +209,7 @@ app.use("/api/drafts", draftRoutes);
 app.use("/api/admin", require("./routes/admin"));
 app.use("/api/calendar", require("./routes/calendarSync"));
 app.use("/api/host-calendar", require("./routes/hostCalendar"));
+app.use("/api/reports", require("./routes/reports"));
 app.use("/uploads", express.static("uploads"));
 app.use("/api/blog", require("./routes/blog"));
 
@@ -216,9 +217,11 @@ app.use("/api/blog", require("./routes/blog"));
 app.get("/sitemap.xml", async (req, res) => {
   try {
     const Property = require("./models/Property");
-    const [properties, blogs] = await Promise.all([
+    const Category = require("./models/Category");
+    const [properties, blogs, categories] = await Promise.all([
       Property.find({ isActive: true }).select("_id updatedAt").lean(),
       require("./models/Blog").find({ status: "published" }).select("slug updatedAt").lean(),
+      Category.find({ status: "published" }).select("_id updatedAt").lean(),
     ]);
 
     const baseUrl = "https://www.vencome.com";
@@ -243,7 +246,14 @@ app.get("/sitemap.xml", async (req, res) => {
       lastmod: b.updatedAt ? new Date(b.updatedAt).toISOString().split("T")[0] : undefined,
     }));
 
-    const allUrls = [...staticUrls, ...propertyUrls, ...blogUrls];
+    const categoryUrls = categories.map((c) => ({
+      loc: `${baseUrl}/category/${c._id}`,
+      priority: "0.7",
+      changefreq: "weekly",
+      lastmod: c.updatedAt ? new Date(c.updatedAt).toISOString().split("T")[0] : undefined,
+    }));
+
+    const allUrls = [...staticUrls, ...propertyUrls, ...blogUrls, ...categoryUrls];
 
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
@@ -295,11 +305,11 @@ VenCome allows businesses to list and book commercial spaces including offices, 
 - Admins - platform management and oversight
 
 ## Links
-- Homepage: https://www.vencome.com
-- Search spaces: https://www.vencome.com/search
-- List a space: https://www.vencome.com/create-space
-- Blog: https://www.vencome.com/blog
-- Contact: https://www.vencome.com/contact
+- [Homepage](https://www.vencome.com)
+- [Search spaces](https://www.vencome.com/search)
+- [List a space](https://www.vencome.com/create-space)
+- [Blog](https://www.vencome.com/blog)
+- [Contact](https://www.vencome.com/contact)
 `);
 });
 
