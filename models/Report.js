@@ -6,7 +6,11 @@ const reportSchema = new mongoose.Schema({
   targetId: { type: mongoose.Schema.Types.ObjectId, required: true },
   reason: {
     type: String,
-    enum: ["spam", "inappropriate", "fraud", "harassment", "fake_listing", "other"],
+    enum: [
+      "spam", "inappropriate", "fraud", "harassment", "fake_listing", "other",
+      // Booking-dispute-specific reasons (type: "booking")
+      "not_as_described", "no_show", "property_damage", "payment_issue",
+    ],
     required: true,
   },
   description: { type: String, maxLength: 1000 },

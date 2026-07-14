@@ -582,7 +582,7 @@ router.post(
                 ` : ''}
                 <p>The host has been notified and may contact you with additional details before your stay.</p>
                 ${booking.status === "pending" ? `
-                <p>Your payment will only be captured once the host confirms your booking. If the host declines or does not respond within 24 hours, you will receive a full refund automatically.</p>
+                <p>Your payment will only be captured once the host confirms your booking. If the host declines or does not respond within 24 hours, your request will automatically expire and your card authorization will simply be released — you will not be charged.</p>
                 ` : `
                 <p>Your payment has been securely held in escrow and will be released to the host after your booking is completed. If anything changes, our team is here to help.</p>
                 `}
