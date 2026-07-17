@@ -10,6 +10,7 @@ const Payment = require("../models/Payment");
 const Review = require("../models/Review");
 const Market = require("../models/Market");
 const Category = require("../models/Category");
+const SupportAccessLog = require("../models/SupportAccessLog");
 const { generateInvoicePDF } = require("../utils/generateInvoice");
 const sendEmail = require("../utils/sendEmail");
 const { client: redisClient } = require("../utils/redisClient");
@@ -199,6 +200,50 @@ router.post("/users/:id/reset-password", async (req, res) => {
     res.json({ success: true, message: "Reset code emailed to the user" });
   } catch (err) {
     console.error("Admin reset password error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Log in as a user who has granted consent-based support access (see
+// POST /api/profile/support-access/grant). Requires an active, unexpired
+// grant — admins cannot use this without the user first opting in. Issues a
+// short-lived (1h) token scoped to that user and logs the access for audit.
+router.post("/users/:id/impersonate", async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).select("supportAccess isAdmin email firstName lastName");
+    if (!user) return res.status(404).json({ error: "User not found" });
+    if (user.isAdmin) return res.status(403).json({ error: "Cannot log in as an admin account" });
+
+    const grant = user.supportAccess;
+    if (!grant?.granted || !grant.expiresAt || new Date(grant.expiresAt) < new Date()) {
+      return res.status(403).json({ error: "This user has not granted active support access" });
+    }
+
+    const token = jwt.sign(
+      { id: user._id, impersonatedBy: req.user.id },
+      process.env.JWT_SECRET,
+      { expiresIn: "1h" }
+    );
+
+    await SupportAccessLog.create({ user: user._id, admin: req.user.id, action: "accessed" });
+
+    res.json({ token });
+  } catch (err) {
+    console.error("Impersonate error:", err.message);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Audit trail for the support access feature above — who granted/revoked
+// consent and which admins actually used it, for a given user.
+router.get("/users/:id/support-access-logs", async (req, res) => {
+  try {
+    const logs = await SupportAccessLog.find({ user: req.params.id })
+      .populate("admin", "firstName lastName displayName email")
+      .sort({ createdAt: -1 })
+      .limit(50);
+    res.json({ logs });
+  } catch (err) {
     res.status(500).json({ error: "Server error" });
   }
 });

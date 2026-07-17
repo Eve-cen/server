@@ -98,6 +98,14 @@ const userSchema = new mongoose.Schema(
     isAdmin: { type: Boolean, default: false },
     adminTitle: { type: String, default: "" }, // e.g. "Founder", "Tech Lead" — display only
     isBanned: { type: Boolean, default: false },
+    // Consent-based support access: user explicitly grants a time-limited
+    // window during which VenCome support/admin staff may log in as them to
+    // help troubleshoot an issue. Auto-expires; never grants standing access.
+    supportAccess: {
+      granted: { type: Boolean, default: false },
+      grantedAt: Date,
+      expiresAt: Date,
+    },
     profileImage: {
       type: String,
       default: "https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y&s=200",
