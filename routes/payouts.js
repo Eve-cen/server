@@ -4,6 +4,7 @@ const router = express.Router();
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const User = require("../models/User");
 const auth = require("../middleware/auth");
+const { blockDuringImpersonation } = require("../middleware/auth");
 const Payout = require("../models/Payout");
 const makeUserHost = require("../utils/stripeConnect");
 
@@ -40,7 +41,7 @@ router.get("/connect/status", auth, async (req, res) => {
 // Start (or resume) Stripe-hosted Connect onboarding. Creates the Express
 // account on first call, then always returns a fresh onboarding link —
 // Stripe account links expire quickly, so one isn't generated in advance.
-router.post("/connect/onboarding-link", auth, async (req, res) => {
+router.post("/connect/onboarding-link", auth, blockDuringImpersonation, async (req, res) => {
   try {
     const user = await makeUserHost(req.user.id);
 
@@ -131,7 +132,7 @@ router.post("/connect/onboarding-link", auth, async (req, res) => {
 //   }
 // });
 
-router.post("/", auth, async (req, res) => {
+router.post("/", auth, blockDuringImpersonation, async (req, res) => {
   const { type, tokenId, clientIp, last4, brand, bankAccount, currency } =
     req.body;
 
@@ -269,7 +270,7 @@ router.get("/payout-history", auth, async (req, res) => {
 });
 
 // Delete payout method
-router.delete("/:methodId", auth, async (req, res) => {
+router.delete("/:methodId", auth, blockDuringImpersonation, async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: "User not found" });
@@ -292,7 +293,7 @@ router.delete("/:methodId", auth, async (req, res) => {
 });
 
 // Set default payout method
-router.patch("/:methodId/default", auth, async (req, res) => {
+router.patch("/:methodId/default", auth, blockDuringImpersonation, async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: "User not found" });

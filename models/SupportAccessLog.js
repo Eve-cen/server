@@ -1,14 +1,20 @@
 const mongoose = require("mongoose");
 
-// Audit trail for the consent-based support access feature (see
-// User.supportAccess). Records every grant, revoke, and actual admin use so
-// there's a full paper trail of who accessed a user's account, when, and
-// under what consent.
+// Audit trail for the consent-based Account Access / Technical Support flow
+// (see models/SupportAccessRequest.js). Records every step — requested,
+// granted, denied, expired, accessed, ended — so there's a full paper trail
+// of who asked for access, on which account, and what happened.
 const supportAccessLogSchema = new mongoose.Schema(
   {
     user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-    admin: { type: mongoose.Schema.Types.ObjectId, ref: "User" }, // set only for "accessed"
-    action: { type: String, enum: ["granted", "revoked", "expired", "accessed"], required: true },
+    admin: { type: mongoose.Schema.Types.ObjectId, ref: "User" }, // who requested/accessed
+    request: { type: mongoose.Schema.Types.ObjectId, ref: "SupportAccessRequest" },
+    reason: { type: String },
+    action: {
+      type: String,
+      enum: ["requested", "granted", "denied", "expired", "accessed", "ended"],
+      required: true,
+    },
   },
   { timestamps: true }
 );

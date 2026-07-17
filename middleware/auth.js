@@ -33,5 +33,20 @@ const adminAuth = async (req, res, next) => {
   }
 };
 
+// Blocks a specific action while the current session is an active admin
+// "Account Access" impersonation (see routes/admin.js impersonate). Per the
+// support-access spec, viewing/diagnosing is fine during a session, but
+// changes to security-sensitive settings (password, payout method) need a
+// separate explicit confirmation step, not silent access via impersonation.
+const blockDuringImpersonation = (req, res, next) => {
+  if (req.user?.impersonatedBy) {
+    return res.status(403).json({
+      error: "This action isn't available during a support access session.",
+    });
+  }
+  next();
+};
+
 module.exports = auth;
 module.exports.adminAuth = adminAuth;
+module.exports.blockDuringImpersonation = blockDuringImpersonation;

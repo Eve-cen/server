@@ -1,6 +1,7 @@
 const express = require("express");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
+const crypto = require("crypto");
 const { adminAuth } = require("../middleware/auth");
 const User = require("../models/User");
 const Booking = require("../models/Booking");
@@ -11,6 +12,7 @@ const Review = require("../models/Review");
 const Market = require("../models/Market");
 const Category = require("../models/Category");
 const SupportAccessLog = require("../models/SupportAccessLog");
+const SupportAccessRequest = require("../models/SupportAccessRequest");
 const { generateInvoicePDF } = require("../utils/generateInvoice");
 const sendEmail = require("../utils/sendEmail");
 const { client: redisClient } = require("../utils/redisClient");
@@ -204,38 +206,149 @@ router.post("/users/:id/reset-password", async (req, res) => {
   }
 });
 
-// Log in as a user who has granted consent-based support access (see
-// POST /api/profile/support-access/grant). Requires an active, unexpired
-// grant — admins cannot use this without the user first opting in. Issues a
-// short-lived (1h) token scoped to that user and logs the access for audit.
+// ─── Consent-based Account Access (also powers the Technical Support panel
+// and the password-reset admin-assist option — one system, three entry
+// points; see routes/supportAccess.js for the user-facing grant/deny side).
+
+// POST /users/:id/support-access/request — admin requests access, with an
+// optional reason/ticket reference. Emails the user a secure grant/deny
+// link, branded as VenCome Support only — JetherVerse never appears here.
+router.post("/users/:id/support-access/request", async (req, res) => {
+  try {
+    const { reason } = req.body;
+    const user = await User.findById(req.params.id).select("isAdmin email firstName lastName displayName");
+    if (!user) return res.status(404).json({ error: "User not found" });
+    if (user.isAdmin) return res.status(403).json({ error: "Cannot request access to an admin account" });
+
+    const existing = await SupportAccessRequest.findOne({ user: user._id, status: "pending" });
+    if (existing) return res.status(409).json({ error: "There's already a pending request for this user." });
+
+    const token = crypto.randomBytes(32).toString("hex");
+    const request = await SupportAccessRequest.create({
+      user: user._id,
+      admin: req.user.id,
+      reason: reason || "",
+      token,
+    });
+
+    await SupportAccessLog.create({
+      user: user._id,
+      admin: req.user.id,
+      request: request._id,
+      reason: reason || "",
+      action: "requested",
+    });
+
+    const link = `${process.env.CLIENT_URL}/support-access/${token}`;
+    const name = user.firstName || user.displayName || "there";
+    await sendEmail({
+      to: user.email,
+      subject: "VenCome Support is requesting access to your account",
+      text: `Hi ${name},\n\nVenCome Support would like to view your account to help with: ${reason || "a support request"}.\n\nYou can review and decide here: ${link}\n\nThis request expires in 24 hours if you don't respond, and you can decline at any time.\n\n— VenCome Support`,
+      html: `<p>Hi ${name},</p><p>VenCome Support would like to view your account to help with: <strong>${reason || "a support request"}</strong>.</p><p><a href="${link}">Review this request</a></p><p>This request expires in 24 hours if you don't respond, and you can decline at any time.</p><p>— VenCome Support</p>`,
+    }).catch((err) => console.error("Support access request email failed:", err.message));
+
+    res.json({ success: true, requestId: request._id });
+  } catch (err) {
+    console.error("Support access request error:", err.message);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /users/:id/support-access/status — current state for the admin Users
+// row action menu: none, pending, granted (active), or expired/denied.
+router.get("/users/:id/support-access/status", async (req, res) => {
+  try {
+    const request = await SupportAccessRequest.findOne({ user: req.params.id }).sort({ createdAt: -1 });
+    if (!request) return res.json({ status: "none" });
+
+    const isActiveSession =
+      request.status === "granted" &&
+      !request.sessionEndedAt &&
+      request.sessionExpiresAt &&
+      new Date(request.sessionExpiresAt) > new Date();
+
+    res.json({
+      status: isActiveSession ? "active" : request.status,
+      sessionExpiresAt: request.sessionExpiresAt,
+      requestedAt: request.requestedAt,
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Log in as a user with an active, granted, unexpired access session.
+// Admins cannot reach this without the user having granted it first.
 router.post("/users/:id/impersonate", async (req, res) => {
   try {
-    const user = await User.findById(req.params.id).select("supportAccess isAdmin email firstName lastName");
+    const user = await User.findById(req.params.id).select("isAdmin email firstName lastName displayName isHost");
     if (!user) return res.status(404).json({ error: "User not found" });
     if (user.isAdmin) return res.status(403).json({ error: "Cannot log in as an admin account" });
 
-    const grant = user.supportAccess;
-    if (!grant?.granted || !grant.expiresAt || new Date(grant.expiresAt) < new Date()) {
+    const request = await SupportAccessRequest.findOne({
+      user: user._id,
+      status: "granted",
+      sessionEndedAt: { $exists: false },
+    }).sort({ createdAt: -1 });
+
+    if (!request || !request.sessionExpiresAt || new Date(request.sessionExpiresAt) < new Date()) {
       return res.status(403).json({ error: "This user has not granted active support access" });
     }
 
     const token = jwt.sign(
-      { id: user._id, impersonatedBy: req.user.id },
+      { id: user._id, impersonatedBy: req.user.id, supportRequestId: request._id.toString() },
       process.env.JWT_SECRET,
       { expiresIn: "1h" }
     );
 
-    await SupportAccessLog.create({ user: user._id, admin: req.user.id, action: "accessed" });
+    await SupportAccessLog.create({
+      user: user._id,
+      admin: req.user.id,
+      request: request._id,
+      action: "accessed",
+    });
 
-    res.json({ token });
+    res.json({
+      token,
+      sessionExpiresAt: request.sessionExpiresAt,
+      userName: user.displayName || [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email,
+    });
   } catch (err) {
     console.error("Impersonate error:", err.message);
     res.status(500).json({ error: "Server error" });
   }
 });
 
-// Audit trail for the support access feature above — who granted/revoked
-// consent and which admins actually used it, for a given user.
+// POST /users/:id/support-access/end-session — admin ends an active session
+// early, from the persistent "Viewing as X" banner's Return to Admin button.
+router.post("/users/:id/support-access/end-session", async (req, res) => {
+  try {
+    const request = await SupportAccessRequest.findOne({
+      user: req.params.id,
+      status: "granted",
+      sessionEndedAt: { $exists: false },
+    }).sort({ createdAt: -1 });
+
+    if (request) {
+      request.sessionEndedAt = new Date();
+      await request.save();
+      await SupportAccessLog.create({
+        user: request.user,
+        admin: req.user.id,
+        request: request._id,
+        action: "ended",
+      });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Audit trail for the flow above — every request/grant/deny/expiry/access/
+// end for a given user.
 router.get("/users/:id/support-access-logs", async (req, res) => {
   try {
     const logs = await SupportAccessLog.find({ user: req.params.id })

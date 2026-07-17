@@ -170,6 +170,25 @@ cron.schedule("0 */6 * * *", async () => {
   }
 });
 
+// Auto-expire unanswered support-access requests after 24h — an unanswered
+// request never falls back to silent access, it just expires.
+cron.schedule("0 * * * *", async () => {
+  try {
+    const SupportAccessRequest = require("./models/SupportAccessRequest");
+    const SupportAccessLog = require("./models/SupportAccessLog");
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const stale = await SupportAccessRequest.find({ status: "pending", requestedAt: { $lt: cutoff } });
+    for (const request of stale) {
+      request.status = "expired";
+      await request.save();
+      await SupportAccessLog.create({ user: request.user, request: request._id, action: "expired" });
+    }
+    if (stale.length > 0) console.log(`[Support Access] Expired ${stale.length} unanswered request(s)`);
+  } catch (err) {
+    console.error("[Support Access] Expiry cron error:", err.message);
+  }
+});
+
 app.use(
   "/api/payments/webhook",
   express.raw({ type: "application/json" }),
@@ -210,6 +229,7 @@ app.use("/api/admin", require("./routes/admin"));
 app.use("/api/calendar", require("./routes/calendarSync"));
 app.use("/api/host-calendar", require("./routes/hostCalendar"));
 app.use("/api/reports", require("./routes/reports"));
+app.use("/api/support-access", require("./routes/supportAccess"));
 app.use("/uploads", express.static("uploads"));
 app.use("/api/blog", require("./routes/blog"));
 
