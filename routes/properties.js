@@ -510,6 +510,46 @@ router.get("/", async (req, res) => {
   }
 });
 
+// Live city counts for the homepage "Browse by City" section — only
+// countries/cities with at least one active listing are returned, so the
+// frontend never has to show an empty city/country.
+router.get("/cities", async (req, res) => {
+  try {
+    const rows = await Property.aggregate([
+      { $match: { isActive: true } },
+      {
+        $group: {
+          _id: { country: "$location.country", city: "$location.city" },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { count: -1 } },
+    ]);
+
+    const byCountry = {};
+    for (const row of rows) {
+      const country = row._id.country || "Other";
+      const city = row._id.city;
+      if (!city) continue;
+      if (!byCountry[country]) byCountry[country] = [];
+      byCountry[country].push({ name: city, count: row.count });
+    }
+
+    const countries = Object.entries(byCountry)
+      .map(([country, cities]) => ({
+        country,
+        totalListings: cities.reduce((sum, c) => sum + c.count, 0),
+        cities,
+      }))
+      .sort((a, b) => b.totalListings - a.totalListings);
+
+    res.json({ success: true, countries });
+  } catch (err) {
+    console.error("Error fetching city counts:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 // ✅ Search properties
 router.get("/search", async (req, res) => {
   const {
