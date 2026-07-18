@@ -55,6 +55,8 @@ const allowedOrigins = [
   "https://client-inky-nu-61.vercel.app",
   "https://vencome.com",
   "https://www.vencome.com",
+  "https://vencome.co.uk",
+  "https://www.vencome.co.uk",
 ];
 
 const io = socketIo(server, {
