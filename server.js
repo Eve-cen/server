@@ -189,6 +189,44 @@ cron.schedule("0 * * * *", async () => {
   }
 });
 
+// Remind hosts with an incomplete draft listing every 24h until they finish
+// it. Runs hourly and checks each draft's own clock (createdAt, then
+// lastReminderSentAt) rather than firing on a single fixed time of day,
+// since drafts are abandoned at all hours.
+cron.schedule("0 * * * *", async () => {
+  try {
+    const Draft = require("./models/Draft");
+    const sendEmail = require("./utils/sendEmail");
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const dueDrafts = await Draft.find({
+      $or: [
+        { lastReminderSentAt: null, createdAt: { $lte: cutoff } },
+        { lastReminderSentAt: { $lte: cutoff } },
+      ],
+    }).populate("host", "email firstName displayName");
+
+    for (const draft of dueDrafts) {
+      if (!draft.host?.email) continue;
+      try {
+        const name = draft.host.firstName || draft.host.displayName || "there";
+        await sendEmail({
+          to: draft.host.email,
+          subject: "Finish your listing on VenCome",
+          text: `Hi ${name}, your listing "${draft.title}" is still saved as a draft. Log in to VenCome and finish it to start receiving bookings.`,
+          html: `<p>Hi ${name},</p><p>Your listing "<strong>${draft.title}</strong>" is still saved as a draft on VenCome. Log in and finish it to start receiving bookings.</p>`,
+        });
+        draft.lastReminderSentAt = new Date();
+        await draft.save();
+      } catch (err) {
+        console.error(`[Draft Reminder] Failed to email host for draft ${draft._id}:`, err.message);
+      }
+    }
+    if (dueDrafts.length > 0) console.log(`[Draft Reminder] Sent ${dueDrafts.length} reminder(s)`);
+  } catch (err) {
+    console.error("[Draft Reminder] Cron error:", err.message);
+  }
+});
+
 app.use(
   "/api/payments/webhook",
   express.raw({ type: "application/json" }),

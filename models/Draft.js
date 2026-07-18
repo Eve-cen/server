@@ -19,6 +19,10 @@ const draftSchema = new mongoose.Schema(
     step: { type: Number, default: 1 },
     coverImage: { type: String, default: "" },
     formData: { type: mongoose.Schema.Types.Mixed, default: {} },
+    // Tracks the last "finish your listing" reminder email so the 24h cron
+    // (server.js) knows who's due for the next one, rather than re-emailing
+    // every host with a draft on every run.
+    lastReminderSentAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

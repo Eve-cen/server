@@ -284,6 +284,7 @@ router.post("/google", async (req, res) => {
     }
 
     let user = await User.findOne({ email });
+    const isNewUser = !user;
     if (!user) {
       user = new User({
         email,
@@ -342,6 +343,7 @@ router.post("/google", async (req, res) => {
     res.json({
       token: jwtToken,
       refreshToken,
+      isNewUser,
       user: {
         id: user._id,
         email: user.email,
