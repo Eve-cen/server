@@ -302,6 +302,7 @@ app.use("/api/reports", require("./routes/reports"));
 app.use("/api/support-access", require("./routes/supportAccess"));
 app.use("/uploads", express.static("uploads"));
 app.use("/api/blog", require("./routes/blog"));
+app.use("/api/contact", require("./routes/contact"));
 
 // Dynamic sitemap
 app.get("/sitemap.xml", async (req, res) => {
