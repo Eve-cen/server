@@ -1,0 +1,15 @@
+# Normalize line endings to LF in the repo and on checkout, regardless of
+# each developer's local core.autocrlf setting — fixes the CRLF-vs-LF noise
+# that made most tracked files show as "modified" with no real changes.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.pdf binary
