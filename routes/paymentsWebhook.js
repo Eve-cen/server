@@ -170,11 +170,17 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
         to: process.env.ADMIN_EMAIL,
         subject: `⚠️ Stripe dispute opened${booking ? `: ${booking.property?.title}` : ""}`,
         html: `
-          <p><strong>Dispute ID:</strong> ${dispute.id}</p>
-          <p><strong>Amount:</strong> ${(dispute.amount / 100).toFixed(2)} ${dispute.currency?.toUpperCase()}</p>
-          <p><strong>Reason:</strong> ${dispute.reason}</p>
-          <p><strong>Booking:</strong> ${booking ? booking._id : "Not matched — check payment_intent " + paymentIntentId}</p>
-          <p>Escrow release for this booking has been frozen automatically. Review in the Stripe Dashboard and admin Disputes tab.</p>
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+            <img src="https://vencome.com/VenCome.jpg" alt="VenCome" style="height:40px;margin-bottom:24px;" />
+            <h2 style="color:#0A1628;">⚠️ Stripe Dispute Opened</h2>
+            <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+              <tr><td style="padding:8px 0;color:#666;">Dispute ID</td><td style="padding:8px 0;font-weight:700;">${dispute.id}</td></tr>
+              <tr><td style="padding:8px 0;color:#666;">Amount</td><td style="padding:8px 0;font-weight:700;">${(dispute.amount / 100).toFixed(2)} ${dispute.currency?.toUpperCase()}</td></tr>
+              <tr><td style="padding:8px 0;color:#666;">Reason</td><td style="padding:8px 0;font-weight:700;">${dispute.reason}</td></tr>
+              <tr><td style="padding:8px 0;color:#666;">Booking</td><td style="padding:8px 0;font-weight:700;">${booking ? booking._id : "Not matched — check payment_intent " + paymentIntentId}</td></tr>
+            </table>
+            <p style="color:#6B7280;font-size:13px;">Escrow release for this booking has been frozen automatically. Review in the Stripe Dashboard and admin Disputes tab.</p>
+          </div>
         `,
       });
     }

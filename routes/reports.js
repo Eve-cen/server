@@ -52,11 +52,19 @@ router.post("/", auth, generalLimiter, async (req, res) => {
         to: ADMIN_EMAILS,
         subject: `⚠️ Self-reported booking dispute${booking?.property?.title ? `: ${booking.property.title}` : ""}`,
         html: `
-          <p><strong>Booking:</strong> ${booking._id}</p>
-          <p><strong>Reported by:</strong> ${req.user.id}</p>
-          <p><strong>Reason:</strong> ${reason}</p>
-          <p><strong>Description:</strong> ${description || "(none provided)"}</p>
-          <p>Escrow release for this booking has been frozen automatically. Review in the admin Disputes tab.</p>
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+            <img src="https://vencome.com/VenCome.jpg" alt="VenCome" style="height:40px;margin-bottom:24px;" />
+            <h2 style="color:#0A1628;">⚠️ Self-Reported Booking Dispute</h2>
+            <p>${booking?.property?.title ? `A dispute was raised on <strong>${booking.property.title}</strong>.` : "A dispute was raised on a booking."}</p>
+            <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+              <tr><td style="padding:8px 0;color:#666;">Booking</td><td style="padding:8px 0;font-weight:700;">${booking._id}</td></tr>
+              <tr><td style="padding:8px 0;color:#666;">Reported by</td><td style="padding:8px 0;font-weight:700;">${req.user.id}</td></tr>
+              <tr><td style="padding:8px 0;color:#666;">Reason</td><td style="padding:8px 0;font-weight:700;">${reason}</td></tr>
+              <tr><td style="padding:8px 0;color:#666;">Description</td><td style="padding:8px 0;font-weight:700;">${description || "(none provided)"}</td></tr>
+            </table>
+            <p style="color:#6B7280;font-size:13px;">Escrow release for this booking has been frozen automatically.</p>
+            <a href="https://www.vencome.com/admin" style="display:inline-block;padding:12px 24px;background:#305CDE;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;">Review in Admin Panel</a>
+          </div>
         `,
       }).catch((err) => console.error("Failed to send dispute admin email:", err.message));
     }

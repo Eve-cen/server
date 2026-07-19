@@ -590,6 +590,15 @@ router.get("/search", async (req, res) => {
       query.$or = [
         { title: regex },
         { description: regex },
+        // "Browse by City" (and typing a city into the main search box) sends
+        // the city name as this same `location`/`query` param, but it was
+        // never actually matched against the property's location fields —
+        // only title/description — so clicking a city with real listings
+        // returned 0 results unless that city name happened to also appear
+        // in a listing's title or description text.
+        { "location.city": regex },
+        { "location.country": regex },
+        { "location.address": regex },
       ];
     }
 

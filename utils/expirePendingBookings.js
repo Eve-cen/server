@@ -53,13 +53,26 @@ module.exports = function setupBookingExpiry() {
               to: guestUser.email,
               subject: "Your booking request expired",
               html: `
-                <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
-                  <h2 style="color:#0A1628;">Booking Request Expired</h2>
-                  <p>Hi ${guestName},</p>
-                  <p>The host didn't respond to your booking request for <strong>${booking.property?.title || "the space"}</strong> within 24 hours, so it has expired.</p>
-                  <p>You have not been charged — no payment was captured.</p>
-                  <a href="https://www.vencome.com/search" style="display:inline-block;padding:14px 28px;background:#0A1628;color:#fff;text-decoration:none;border-radius:10px;font-weight:700;">Find Another Space</a>
-                  <p style="margin-top:24px;color:#6B7280;font-size:13px;">The VenCome Team</p>
+                <div style="font-family: 'Manrope', Arial, sans-serif; background-color: #f4f4f7; padding: 20px;">
+                  <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+                    <div style="background-color: #f0f0f0; padding: 20px; text-align: center;">
+                      <img src="https://vencome.com/VenCome.jpg" alt="VenCome" style="max-width: 150px;">
+                    </div>
+                    <div style="padding: 30px; color: #333;">
+                      <h2 style="color: #305CDE; text-align: center; margin-top: 0;">Booking Request Expired</h2>
+                      <p>Hi <strong>${guestName}</strong>,</p>
+                      <p>The host didn't respond to your booking request for <strong>${booking.property?.title || "the space"}</strong> within 24 hours, so it has expired.</p>
+                      <p>You have not been charged — no payment was captured.</p>
+                      <div style="text-align: center; margin: 30px 0;">
+                        <a href="https://www.vencome.com/search" style="display: inline-block; background-color: #0A1628; color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-weight: 600; font-size: 14px;">Find Another Space</a>
+                      </div>
+                      <p style="margin-bottom: 0;">The VenCome Team</p>
+                    </div>
+                    <div style="background-color: #f0f0f0; padding: 20px; text-align: center; font-size: 12px; color: #888;">
+                      This is an automated message, please do not reply.<br />
+                      © ${new Date().getFullYear()} VenCome. All rights reserved.
+                    </div>
+                  </div>
                 </div>
               `,
             });
