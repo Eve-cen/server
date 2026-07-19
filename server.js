@@ -363,7 +363,13 @@ ${allUrls
 </urlset>`;
 
     res.set("Content-Type", "application/xml");
-    res.set("Cache-Control", "public, max-age=3600");
+    // Response body now varies per-domain (baseUrl derived from the request's
+    // forwarded host). Vercel's edge cache keys external rewrites by the
+    // proxied destination URL, not the original incoming domain — since both
+    // vencome.com and vencome.co.uk rewrite to this exact same backend route,
+    // a public cache would let one domain's cached response leak into the
+    // other's. Must stay uncached.
+    res.set("Cache-Control", "no-store");
     res.send(xml);
   } catch (err) {
     console.error("Sitemap error:", err);
