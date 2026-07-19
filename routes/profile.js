@@ -1,6 +1,9 @@
 const express = require("express");
 const fs = require("fs");
 const User = require("../models/User");
+const Booking = require("../models/Booking");
+const Property = require("../models/Property");
+const Review = require("../models/Review");
 const auth = require("../middleware/auth");
 const multer = require("multer");
 const uploadToR2 = require("../utils/uploadService");
@@ -82,6 +85,45 @@ router.put("/", auth, upload.single("profileImage"), async (req, res) => {
     const updatedUser = await user.save();
 
     res.json(updatedUser);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Export own data (GET /api/profile/export-data)
+router.get("/export-data", auth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const [user, bookingsAsGuest, bookingsAsHost, properties, reviewsGiven, reviewsReceived] =
+      await Promise.all([
+        User.findById(userId).select("-password").lean(),
+        Booking.find({ guest: userId }).lean(),
+        Booking.find({ host: userId }).lean(),
+        Property.find({ host: userId }).lean(),
+        Review.find({ guest: userId }).lean(),
+        Review.find({ host: userId }).lean(),
+      ]);
+
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const exportData = {
+      exportedAt: new Date().toISOString(),
+      profile: user,
+      bookingsAsGuest,
+      bookingsAsHost,
+      properties,
+      reviewsGiven,
+      reviewsReceived,
+    };
+
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="vencome-data-export-${userId}.json"`
+    );
+    res.setHeader("Content-Type", "application/json");
+    res.json(exportData);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
