@@ -1,4 +1,5 @@
 const express = require("express");
+const bcrypt = require("bcryptjs");
 const User = require("../models/User");
 const auth = require("../middleware/auth");
 const router = express.Router();
@@ -75,6 +76,34 @@ router.put("/privacy", auth, async (req, res) => {
     res.json(updatedUser);
   } catch (err) {
     res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Change password while logged in (PUT /api/settings/password)
+router.put("/password", auth, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword)
+    return res.status(400).json({ message: "All fields are required" });
+  if (newPassword.length < 8)
+    return res
+      .status(400)
+      .json({ message: "Password must be at least 8 characters" });
+
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch)
+      return res.status(400).json({ message: "Current password is incorrect" });
+
+    user.password = await bcrypt.hash(newPassword, 12);
+    await user.save();
+
+    res.json({ message: "Password updated successfully" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
   }
 });
 
