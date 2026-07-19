@@ -314,7 +314,10 @@ app.get("/sitemap.xml", async (req, res) => {
       Category.find({ status: "published" }).select("_id updatedAt").lean(),
     ]);
 
-    const baseUrl = "https://www.vencome.com";
+    const allowedHosts = allowedOrigins.map((o) => o.replace(/^https?:\/\//, ""));
+    const forwardedHost = req.headers["x-forwarded-host"];
+    const host = allowedHosts.includes(forwardedHost) ? forwardedHost : "www.vencome.com";
+    const baseUrl = `https://${host}`;
     const staticUrls = [
       { loc: `${baseUrl}/`, priority: "1.0", changefreq: "daily" },
       { loc: `${baseUrl}/search`, priority: "0.9", changefreq: "daily" },
