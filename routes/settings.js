@@ -43,6 +43,10 @@ router.put("/personal", auth, async (req, res) => {
       user.isVerified = req.body.isVerified;
     }
 
+    if (req.body.newsletterOptIn !== undefined) {
+      user.newsletterOptIn = !!req.body.newsletterOptIn;
+    }
+
     const updatedUser = await user.save();
     res.json(updatedUser);
   } catch (err) {
@@ -75,6 +79,29 @@ router.put("/privacy", auth, async (req, res) => {
     const updatedUser = await user.save();
     res.json(updatedUser);
   } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Update notification preferences (PUT /api/settings/notifications)
+// Currently only persists emailMarketing (newsletter opt-in) — the other
+// toggles (emailBookings, emailMessages, smsBookings, smsReminders) don't
+// have a backing preference on the User model yet.
+router.put("/notifications", auth, async (req, res) => {
+  const { notifications } = req.body;
+
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    if (notifications?.emailMarketing !== undefined) {
+      user.newsletterOptIn = !!notifications.emailMarketing;
+    }
+
+    await user.save();
+    res.json({ message: "Notification preferences saved" });
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ error: "Server error" });
   }
 });
