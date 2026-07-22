@@ -28,6 +28,17 @@ const bookingSchema = new mongoose.Schema(
     // daily/hourly (which totalNights/totalHours alone could already cover).
     pricingUnit: { type: String, enum: ["hour", "day", "week", "month", "year"] },
     totalUnits: Number,
+    // Per-day rate breakdown for HOURLY/DAILY bookings on a listing with
+    // customDayPricing active — only populated when the rate actually
+    // varied across the booking (see routes/bookings.js). Lets the receipt
+    // show "Fri 12 Sep — £120, Sat 13 Sep — £180" instead of a single
+    // flat-rate line when the price genuinely wasn't flat.
+    priceBreakdown: [
+      {
+        date: { type: Date, required: true },
+        rate: { type: Number, required: true },
+      },
+    ],
     // Permanent record of the host's listing-specific terms this customer
     // agreed to at checkout (separate from VenCome's platform Terms &
     // Conditions). The exact text is snapshotted here rather than just

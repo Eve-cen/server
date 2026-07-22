@@ -61,6 +61,9 @@ const propertySchema = new mongoose.Schema(
     },
     pricing: {
       weekdayPrice: { type: Number, default: 0 },
+      // Superseded by customDayPricing below — never read by any price
+      // calculation (client or server). Left in place for backward
+      // compatibility; not wired up to anything.
       weekendPrice: { type: Number, default: 0 },
       hourlyPrice: { type: Number, default: 0 },
       pricingType: { type: String, default: "DAILY" },
@@ -73,6 +76,21 @@ const propertySchema = new mongoose.Schema(
         newListing: { type: Boolean, default: false },
         weekly: { type: Boolean, default: false },
         monthly: { type: Boolean, default: false },
+      },
+      // Optional per-day-of-week rate overrides for HOURLY/DAILY pricing
+      // only (a week/month/year-long stay spans all 7 days regardless of
+      // start day, so day-of-week variance doesn't apply to those tiers).
+      // day: 0=Sunday..6=Saturday (matches JS Date.getDay()). A day not
+      // present here falls back to the base weekdayPrice/daily or
+      // hourlyPrice/hourly rate.
+      customDayPricing: {
+        type: [
+          {
+            day: { type: Number, min: 0, max: 6, required: true },
+            rate: { type: Number, min: 0, required: true },
+          },
+        ],
+        default: [],
       },
     },
     bookingSettings: {

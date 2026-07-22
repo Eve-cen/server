@@ -13,6 +13,10 @@ const fs = require("fs");
 const { randomUUID } = require("crypto");
 const uploadToR2 = require("../utils/uploadService");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+const {
+  calculateDailyPriceWithBreakdown,
+  calculateHourlyPriceWithBreakdown,
+} = require("../utils/pricing");
 const googleCalendar = require("../utils/googleCalendar");
 const outlookCalendar = require("../utils/outlookCalendar");
 
@@ -327,6 +331,7 @@ router.post(
       let totalNights = 0;
       let totalHours = 0;
       let totalUnits = 0;
+      let priceBreakdown = [];
 
       const pricingType = property.pricing.pricingType || "DAILY";
       // dailyPrice, hourlyPrice, and effectivePricingType are already
@@ -348,7 +353,16 @@ router.post(
         }
         totalHours = Math.ceil(diffHours * 10) / 10;
         totalUnits = totalHours;
-        totalPrice = Math.round(totalHours * hourlyPrice * 100) / 100;
+        {
+          const hourlyResult = calculateHourlyPriceWithBreakdown(
+            checkInDate,
+            totalHours,
+            hourlyPrice,
+            property.pricing.customDayPricing
+          );
+          totalPrice = hourlyResult.totalPrice;
+          priceBreakdown = hourlyResult.breakdown;
+        }
 
       } else if (effectivePricingType === "DAILY") {
         if (dailyPrice <= 0) {
@@ -360,7 +374,16 @@ router.post(
         const calendarDays = Math.round((checkOutDay - checkInDay) / (1000 * 60 * 60 * 24));
         totalNights = Math.max(1, calendarDays);
         totalUnits = totalNights;
-        totalPrice = totalNights * dailyPrice;
+        {
+          const dailyResult = calculateDailyPriceWithBreakdown(
+            checkInDate,
+            totalNights,
+            dailyPrice,
+            property.pricing.customDayPricing
+          );
+          totalPrice = dailyResult.totalPrice;
+          priceBreakdown = dailyResult.breakdown;
+        }
 
       } else if (effectivePricingType === "WEEKLY") {
         if (weeklyPrice <= 0) {
@@ -462,6 +485,10 @@ router.post(
           }[effectivePricingType]
         ),
         totalUnits,
+        // Only HOURLY/DAILY populate this (see calculation above) --
+        // WEEKLY/MONTHLY/ANNUAL bookings span all 7 days regardless of
+        // start day, so day-of-week variance isn't meaningful for them.
+        priceBreakdown,
         // Snapshot the exact terms text the customer agreed to (validated
         // above), plus when -- guest identity is already captured via the
         // `guest` field above, so together this is a permanent record of
