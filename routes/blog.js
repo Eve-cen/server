@@ -62,6 +62,20 @@ router.get("/admin/all", adminAuth, async (req, res) => {
   }
 });
 
+// GET /blog/admin/:id — single blog with full content, for the edit form.
+// /admin/all excludes content to keep the list lightweight, so editing
+// needs its own fetch -- unlike the public GET /:slug route, this also
+// works for drafts (not just published posts).
+router.get("/admin/:id", adminAuth, async (req, res) => {
+  try {
+    const blog = await Blog.findById(req.params.id);
+    if (!blog) return res.status(404).json({ error: "Blog not found" });
+    res.json({ success: true, blog });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 // POST /blog — create new blog
 router.post("/", adminAuth, async (req, res) => {
   try {
