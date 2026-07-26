@@ -24,13 +24,23 @@ const adminAuth = async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.id).select("_id isAdmin");
+    const user = await User.findById(decoded.id).select("_id isAdmin adminRole");
     if (!user || !user.isAdmin) return res.status(403).json({ error: "Admin access required" });
-    req.user = decoded;
+    req.user = { ...decoded, isAdmin: true, adminRole: user.adminRole || "full_admin" };
     next();
   } catch (err) {
     res.status(401).json({ error: "Invalid or expired token" });
   }
+};
+
+// Scopes an admin route to specific tiers (e.g. requireAdminRole("finance")).
+// Must run after adminAuth, which attaches req.user.adminRole. full_admin
+// always passes regardless of which tiers are listed.
+const requireAdminRole = (...allowedRoles) => (req, res, next) => {
+  if (req.user?.adminRole === "full_admin" || allowedRoles.includes(req.user?.adminRole)) {
+    return next();
+  }
+  res.status(403).json({ error: "Your admin role doesn't have access to this" });
 };
 
 // Blocks a specific action while the current session is an active admin
@@ -49,4 +59,5 @@ const blockDuringImpersonation = (req, res, next) => {
 
 module.exports = auth;
 module.exports.adminAuth = adminAuth;
+module.exports.requireAdminRole = requireAdminRole;
 module.exports.blockDuringImpersonation = blockDuringImpersonation;

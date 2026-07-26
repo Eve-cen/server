@@ -2,7 +2,7 @@ const express = require("express");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
-const { adminAuth } = require("../middleware/auth");
+const { adminAuth, requireAdminRole } = require("../middleware/auth");
 const User = require("../models/User");
 const Booking = require("../models/Booking");
 const Property = require("../models/Property");
@@ -11,6 +11,10 @@ const Payment = require("../models/Payment");
 const Review = require("../models/Review");
 const Market = require("../models/Market");
 const Category = require("../models/Category");
+const Broadcast = require("../models/Broadcast");
+const BroadcastTemplate = require("../models/BroadcastTemplate");
+const PlatformSettings = require("../models/PlatformSettings");
+const { generateOTP, storeOTP, verifyOTP } = require("../utils/otp");
 const SupportAccessLog = require("../models/SupportAccessLog");
 const SupportAccessRequest = require("../models/SupportAccessRequest");
 const { generateInvoicePDF } = require("../utils/generateInvoice");
@@ -19,9 +23,29 @@ const { client: redisClient } = require("../utils/redisClient");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const router = express.Router();
 
-const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
+const signAdminToken = async (user) => {
+  const settings = await PlatformSettings.getSettings();
+  return jwt.sign(
+    { id: user._id, isAdmin: true },
+    process.env.JWT_SECRET,
+    { expiresIn: `${settings.sessionTimeoutMinutes}m` }
+  );
+};
+
+const adminUserPayload = (user) => ({
+  _id: user._id,
+  email: user.email,
+  firstName: user.firstName,
+  lastName: user.lastName,
+  isAdmin: user.isAdmin,
+});
 
 // ─── Admin login (separate from regular user login) ──────────────────────────
+// Second factor (email OTP) is gated by PlatformSettings.requireAdmin2FA —
+// Settings -> Security tab. Defaults on: admin accounts are the most
+// sensitive tier on the platform and previously had NO 2FA at all, unlike
+// every regular user, who already goes through this same OTP step on every
+// login (see routes/auth.js /login + /verify-login).
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -39,31 +63,63 @@ router.post("/login", async (req, res) => {
       return res.status(403).json({ error: "Invalid admin credentials" });
     }
 
-    const token = jwt.sign(
-      { id: user._id, isAdmin: true },
-      process.env.JWT_SECRET,
-      { expiresIn: "8h" }
-    );
+    const settings = await PlatformSettings.getSettings();
+    if (!settings.requireAdmin2FA) {
+      const token = await signAdminToken(user);
+      return res.json({ success: true, token, user: adminUserPayload(user) });
+    }
 
-    res.json({
-      success: true,
-      token,
-      user: {
-        _id: user._id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        isAdmin: user.isAdmin,
-      },
+    const otp = generateOTP();
+    await storeOTP(`admin:${user.email}`, otp);
+    await sendEmail({
+      to: user.email,
+      subject: "Admin Login Verification Code",
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+          <img src="https://vencome.com/VenCome.jpg" alt="VenCome" style="height:40px;margin-bottom:24px;" />
+          <p>An admin login was attempted for this account. Use the code below to complete it:</p>
+          <p style="font-size:28px;font-weight:800;letter-spacing:4px;color:#0A1628;">${otp}</p>
+          <p style="font-size:13px;color:#9CA3AF;">Expires in 10 minutes. If this wasn't you, ignore this email.</p>
+        </div>
+      `,
     });
+
+    res.json({ requiresVerification: true, message: "OTP sent to email" });
   } catch (err) {
     console.error("Admin login error:", err);
     res.status(500).json({ error: "Server error" });
   }
 });
 
+router.post("/verify-login", async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    if (!email || !otp) return res.status(400).json({ error: "Email and OTP are required" });
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user || !user.isAdmin) return res.status(403).json({ error: "Invalid admin credentials" });
+
+    const valid = await verifyOTP(`admin:${user.email}`, otp);
+    if (!valid) return res.status(400).json({ error: "Invalid or expired code" });
+
+    const token = await signAdminToken(user);
+    res.json({ success: true, token, user: adminUserPayload(user) });
+  } catch (err) {
+    console.error("Admin verify-login error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 // All admin routes require adminAuth
 router.use(adminAuth);
+
+// Tiered access on top of adminAuth — full_admin always passes every gate.
+// /stats and /overview-analytics are intentionally left ungated (every tier
+// sees the dashboard home). Team management stays full_admin-only below.
+router.use(["/users", "/verifications", "/reports", "/properties", "/bookings"], requireAdminRole("support"));
+router.use(["/payments", "/payouts", "/invoices"], requireAdminRole("finance"));
+router.use(["/markets", "/categories", "/broadcast"], requireAdminRole("content"));
+router.use(["/team", "/settings"], requireAdminRole());
 
 // ─── Dashboard stats ──────────────────────────────────────────────────────────
 router.get("/stats", async (req, res) => {
@@ -169,7 +225,9 @@ router.patch("/users/:id/ban", async (req, res) => {
   res.json(user);
 });
 
-router.patch("/users/:id/admin", async (req, res) => {
+// Full-admin-only even though the broader /users prefix is support-tier —
+// granting/revoking admin access is a privilege-escalation-sensitive action.
+router.patch("/users/:id/admin", requireAdminRole(), async (req, res) => {
   const user = await User.findByIdAndUpdate(req.params.id, { isAdmin: req.body.isAdmin ?? true }, { new: true }).select("-password");
   if (!user) return res.status(404).json({ error: "User not found" });
   res.json(user);
@@ -659,41 +717,146 @@ router.post("/payments/:bookingId/release", async (req, res) => {
   }
 });
 
-// POST /admin/broadcast — send email to all/hosts/customers
+// Shared by the immediate-send path here and the scheduled-broadcast cron
+// (utils/sendScheduledBroadcasts.js) — resolves recipients, emails them, and
+// stamps the Broadcast doc as sent/failed.
+async function sendBroadcastNow(broadcast) {
+  const query =
+    broadcast.target === "hosts" ? { isHost: true } :
+    broadcast.target === "customers" ? { isHost: false } :
+    broadcast.target === "specific" ? { _id: { $in: broadcast.recipientUsers } } :
+    {};
+  const users = await User.find(query).select("email firstName displayName").lean();
+
+  if (!users.length) {
+    broadcast.status = "failed";
+    await broadcast.save();
+    throw new Error("No users found for this target");
+  }
+
+  const emailPromises = users.map((user) => {
+    const name = user.displayName || user.firstName || "there";
+    return sendEmail({
+      to: user.email,
+      subject: broadcast.subject,
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+          <img src="https://vencome.com/VenCome.jpg" alt="VenCome" style="height:40px;margin-bottom:24px;" />
+          <p>Hi ${name},</p>
+          <div style="font-size:15px;line-height:1.7;color:#374151;">
+            ${broadcast.message.replace(/\n/g, "<br/>")}
+          </div>
+          <hr style="border:none;border-top:1px solid #E5E7EB;margin:24px 0;" />
+          <p style="font-size:12px;color:#9CA3AF;">You received this email because you are a registered VenCome user. © ${new Date().getFullYear()} VenCome</p>
+        </div>
+      `,
+    }).catch((err) => console.error(`Failed to send to ${user.email}:`, err.message));
+  });
+
+  await Promise.allSettled(emailPromises);
+
+  broadcast.status = "sent";
+  broadcast.sentAt = new Date();
+  broadcast.recipientCount = users.length;
+  await broadcast.save();
+  return users.length;
+}
+// Attached to the router (not module.exports directly) since module.exports
+// gets reassigned to `router` at the bottom of this file — see
+// utils/sendScheduledBroadcasts.js for the consumer.
+router.sendBroadcastNow = sendBroadcastNow;
+
+// POST /admin/broadcast — send (or schedule) an email to all/hosts/customers/specific users
 router.post("/broadcast", async (req, res) => {
   try {
-    const { subject, message, target } = req.body;
+    const { subject, message, target, userIds, scheduledFor } = req.body;
     if (!subject || !message) return res.status(400).json({ error: "Subject and message are required" });
+    if (target === "specific" && (!Array.isArray(userIds) || !userIds.length)) {
+      return res.status(400).json({ error: "Select at least one recipient" });
+    }
 
-    const query = target === "hosts" ? { isHost: true } : target === "customers" ? { isHost: false } : {};
-    const users = await User.find(query).select("email firstName displayName").lean();
+    const scheduledDate = scheduledFor ? new Date(scheduledFor) : null;
+    const isFutureSend = scheduledDate && scheduledDate.getTime() > Date.now();
 
-    if (!users.length) return res.status(400).json({ error: "No users found for this target" });
-
-    const sendEmail = require("../utils/sendEmail");
-    const emailPromises = users.map(user => {
-      const name = user.displayName || user.firstName || "there";
-      return sendEmail({
-        to: user.email,
-        subject,
-        html: `
-          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
-            <img src="https://vencome.com/VenCome.jpg" alt="VenCome" style="height:40px;margin-bottom:24px;" />
-            <p>Hi ${name},</p>
-            <div style="font-size:15px;line-height:1.7;color:#374151;">
-              ${message.replace(/\n/g, "<br/>")}
-            </div>
-            <hr style="border:none;border-top:1px solid #E5E7EB;margin:24px 0;" />
-            <p style="font-size:12px;color:#9CA3AF;">You received this email because you are a registered VenCome user. © ${new Date().getFullYear()} VenCome</p>
-          </div>
-        `,
-      }).catch(err => console.error(`Failed to send to ${user.email}:`, err.message));
+    const broadcast = new Broadcast({
+      subject,
+      message,
+      target: target || "all",
+      recipientUsers: target === "specific" ? userIds : [],
+      status: isFutureSend ? "scheduled" : "sent",
+      scheduledFor: scheduledDate || null,
+      sentBy: req.user.id,
     });
 
-    await Promise.allSettled(emailPromises);
-    res.json({ success: true, sent: users.length });
+    if (isFutureSend) {
+      await broadcast.save();
+      return res.json({ success: true, scheduled: true, scheduledFor: broadcast.scheduledFor });
+    }
+
+    await broadcast.save();
+    const sent = await sendBroadcastNow(broadcast);
+    res.json({ success: true, sent });
   } catch (err) {
     console.error("Broadcast error:", err);
+    res.status(500).json({ error: err.message || "Server error" });
+  }
+});
+
+// GET /admin/broadcast/history — past + scheduled broadcasts, newest first
+router.get("/broadcast/history", async (req, res) => {
+  try {
+    const broadcasts = await Broadcast.find()
+      .sort({ createdAt: -1 })
+      .limit(100)
+      .populate("sentBy", "displayName firstName lastName email");
+    res.json({ broadcasts });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// DELETE /admin/broadcast/:id — cancel a not-yet-sent scheduled broadcast
+router.delete("/broadcast/:id", async (req, res) => {
+  try {
+    const broadcast = await Broadcast.findById(req.params.id);
+    if (!broadcast) return res.status(404).json({ error: "Broadcast not found" });
+    if (broadcast.status !== "scheduled") {
+      return res.status(400).json({ error: "Only scheduled broadcasts that haven't sent yet can be cancelled" });
+    }
+    broadcast.status = "cancelled";
+    await broadcast.save();
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ─── Broadcast templates ────────────────────────────────────────────────────
+router.get("/broadcast/templates", async (req, res) => {
+  try {
+    const templates = await BroadcastTemplate.find().sort({ createdAt: -1 });
+    res.json({ templates });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+router.post("/broadcast/templates", async (req, res) => {
+  try {
+    const { name, subject, message } = req.body;
+    if (!name || !subject || !message) return res.status(400).json({ error: "Name, subject and message are required" });
+    const template = await BroadcastTemplate.create({ name, subject, message });
+    res.status(201).json({ success: true, template });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+router.delete("/broadcast/templates/:id", async (req, res) => {
+  try {
+    await BroadcastTemplate.findByIdAndDelete(req.params.id);
+    res.json({ success: true });
+  } catch (err) {
     res.status(500).json({ error: "Server error" });
   }
 });
@@ -931,11 +1094,13 @@ router.post("/invoices/:bookingId/resend", async (req, res) => {
   }
 });
 
+const ADMIN_ROLES = ["full_admin", "finance", "support", "content"];
+
 // ─── Team ─────────────────────────────────────────────────────────────────────
 router.get("/team", async (req, res) => {
   try {
     const team = await User.find({ isAdmin: true })
-      .select("firstName lastName displayName email profileImage adminTitle createdAt")
+      .select("firstName lastName displayName email profileImage adminTitle adminRole createdAt")
       .sort({ createdAt: 1 });
     res.json({ team });
   } catch (err) {
@@ -950,7 +1115,25 @@ router.patch("/team/:id/title", async (req, res) => {
       { _id: req.params.id, isAdmin: true },
       { adminTitle: adminTitle || "" },
       { new: true }
-    ).select("firstName lastName displayName email profileImage adminTitle createdAt");
+    ).select("firstName lastName displayName email profileImage adminTitle adminRole createdAt");
+    if (!user) return res.status(404).json({ error: "Admin user not found" });
+    res.json({ success: true, user });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+router.patch("/team/:id/role", async (req, res) => {
+  try {
+    const { adminRole } = req.body;
+    if (!ADMIN_ROLES.includes(adminRole)) {
+      return res.status(400).json({ error: `adminRole must be one of: ${ADMIN_ROLES.join(", ")}` });
+    }
+    const user = await User.findOneAndUpdate(
+      { _id: req.params.id, isAdmin: true },
+      { adminRole },
+      { new: true }
+    ).select("firstName lastName displayName email profileImage adminTitle adminRole createdAt");
     if (!user) return res.status(404).json({ error: "Admin user not found" });
     res.json({ success: true, user });
   } catch (err) {
@@ -961,8 +1144,11 @@ router.patch("/team/:id/title", async (req, res) => {
 // Grant admin access to an existing user by email (adds them to the team)
 router.post("/team/invite", async (req, res) => {
   try {
-    const { email, adminTitle } = req.body;
+    const { email, adminTitle, adminRole } = req.body;
     if (!email) return res.status(400).json({ error: "Email is required" });
+    if (adminRole && !ADMIN_ROLES.includes(adminRole)) {
+      return res.status(400).json({ error: `adminRole must be one of: ${ADMIN_ROLES.join(", ")}` });
+    }
 
     const user = await User.findOne({ email: email.toLowerCase().trim() });
     if (!user) return res.status(404).json({ error: "No VenCome user found with that email — they need an account first" });
@@ -970,9 +1156,10 @@ router.post("/team/invite", async (req, res) => {
 
     user.isAdmin = true;
     user.adminTitle = adminTitle || "";
+    user.adminRole = adminRole || "full_admin";
     await user.save();
 
-    res.json({ success: true, user: { _id: user._id, email: user.email, displayName: user.displayName, adminTitle: user.adminTitle } });
+    res.json({ success: true, user: { _id: user._id, email: user.email, displayName: user.displayName, adminTitle: user.adminTitle, adminRole: user.adminRole } });
   } catch (err) {
     res.status(500).json({ error: "Server error" });
   }
@@ -1046,6 +1233,96 @@ router.delete("/categories/:id", async (req, res) => {
     const category = await Category.findByIdAndDelete(req.params.id);
     if (!category) return res.status(404).json({ error: "Category not found" });
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ─── Subcategories (embedded on Category) ──────────────────────────────────────
+router.post("/categories/:id/subcategories", async (req, res) => {
+  try {
+    const { name, description, image } = req.body;
+    if (!name || !description) return res.status(400).json({ error: "Name and description are required" });
+
+    const category = await Category.findById(req.params.id);
+    if (!category) return res.status(404).json({ error: "Category not found" });
+
+    category.subcategories.push({ name, description, image: image || category.image });
+    await category.save();
+    res.status(201).json({ success: true, category });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+router.patch("/categories/:id/subcategories/:subId", async (req, res) => {
+  try {
+    const { name, description, image } = req.body;
+    const category = await Category.findById(req.params.id);
+    if (!category) return res.status(404).json({ error: "Category not found" });
+
+    const sub = category.subcategories.id(req.params.subId);
+    if (!sub) return res.status(404).json({ error: "Subcategory not found" });
+
+    if (name !== undefined) sub.name = name;
+    if (description !== undefined) sub.description = description;
+    if (image !== undefined) sub.image = image;
+    await category.save();
+    res.json({ success: true, category });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+router.delete("/categories/:id/subcategories/:subId", async (req, res) => {
+  try {
+    const category = await Category.findById(req.params.id);
+    if (!category) return res.status(404).json({ error: "Category not found" });
+
+    const sub = category.subcategories.id(req.params.subId);
+    if (!sub) return res.status(404).json({ error: "Subcategory not found" });
+
+    sub.deleteOne();
+    await category.save();
+    res.json({ success: true, category });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ─── Platform Settings ──────────────────────────────────────────────────────────
+router.get("/settings", async (req, res) => {
+  try {
+    const settings = await PlatformSettings.getSettings();
+    res.json({ settings });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+router.patch("/settings", async (req, res) => {
+  try {
+    const fields = [
+      "platformName", "supportEmail", "currency", "maintenanceMode",
+      "registrationsEnabled", "hostApplicationsEnabled", "requireAdmin2FA",
+      "sessionTimeoutMinutes",
+    ];
+    const update = {};
+    for (const field of fields) {
+      if (req.body[field] !== undefined) update[field] = req.body[field];
+    }
+    if (update.sessionTimeoutMinutes !== undefined) {
+      const minutes = Number(update.sessionTimeoutMinutes);
+      if (!Number.isFinite(minutes) || minutes < 5) {
+        return res.status(400).json({ error: "Session timeout must be at least 5 minutes" });
+      }
+      update.sessionTimeoutMinutes = minutes;
+    }
+
+    const settings = await PlatformSettings.getSettings();
+    Object.assign(settings, update);
+    await settings.save();
+    res.json({ success: true, settings });
   } catch (err) {
     res.status(500).json({ error: "Server error" });
   }

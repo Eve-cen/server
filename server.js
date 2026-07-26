@@ -27,6 +27,7 @@ const socketIo = require("socket.io");
 const Message = require("./models/Message");
 const Conversation = require("./models/Conversation");
 const setupEscrowRelease = require("./utils/releaseEscrow");
+const setupScheduledBroadcasts = require("./utils/sendScheduledBroadcasts");
 const setupBookingExpiry = require("./utils/expirePendingBookings");
 const setupGoogleCalendarSync = require("./utils/syncGoogleCalendars");
 const setupOutlookCalendarSync = require("./utils/syncOutlookCalendars");
@@ -275,6 +276,22 @@ mongoose
   .then(() => console.log("MongoDB connected"))
   .catch((err) => console.error(err));
 
+// Blocks everything except admin + auth routes when Maintenance Mode is on
+// (Settings -> Platform tab), so admins can still log in and turn it back off.
+const PlatformSettings = require("./models/PlatformSettings");
+app.use(async (req, res, next) => {
+  if (req.path.startsWith("/api/admin") || req.path.startsWith("/api/auth")) return next();
+  try {
+    const settings = await PlatformSettings.getSettings();
+    if (settings.maintenanceMode) {
+      return res.status(503).json({ error: "VenCome is temporarily down for maintenance. Please check back shortly." });
+    }
+  } catch (err) {
+    console.error("Maintenance mode check failed:", err);
+  }
+  next();
+});
+
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/properties", propertyRoutes);
@@ -416,6 +433,7 @@ VenCome allows businesses to list and book commercial spaces including offices, 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 setupEscrowRelease();
+setupScheduledBroadcasts();
 setupBookingExpiry();
 setupGoogleCalendarSync();
 setupOutlookCalendarSync();

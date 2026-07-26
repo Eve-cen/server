@@ -10,24 +10,10 @@ const auth = require("../middleware/auth");
 const { authLimiter, otpLimiter } = require("../middleware/rateLimiter");
 const { OAuth2Client } = require("google-auth-library");
 const { client: redisClient } = require("../utils/redisClient");
+const { generateOTP, storeOTP, verifyOTP } = require("../utils/otp");
 const router = express.Router();
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
-
-// Generate 6-digit OTP (stored in Redis with TTL)
-const generateOTP = () =>
-  Math.floor(100000 + Math.random() * 900000).toString();
-
-const storeOTP = async (key, otp) => {
-  await redisClient.setEx(`otp:${key}`, 600, otp); // 10 min TTL
-};
-
-const verifyOTP = async (key, otp) => {
-  const stored = await redisClient.get(`otp:${key}`);
-  if (!stored || stored !== otp) return false;
-  await redisClient.del(`otp:${key}`);
-  return true;
-};
 
 // ─── GET /auth/me ─────────────────────────────────────────────────────────────
 router.get("/me", auth, async (req, res) => {

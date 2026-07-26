@@ -97,6 +97,13 @@ const userSchema = new mongoose.Schema(
     newsletterOptIn: { type: Boolean, default: false },
     isAdmin: { type: Boolean, default: false },
     adminTitle: { type: String, default: "" }, // e.g. "Founder", "Tech Lead" — display only
+    // Full Admin sees/does everything; the other tiers scope down which admin
+    // sections a team member can access — see middleware/auth.js requireAdminRole.
+    adminRole: {
+      type: String,
+      enum: ["full_admin", "finance", "support", "content"],
+      default: "full_admin",
+    },
     isBanned: { type: Boolean, default: false },
     // Consent-based support access is now tracked in its own collection —
     // see models/SupportAccessRequest.js — rather than a flag here, since
