@@ -16,6 +16,7 @@ const SupportAccessRequest = require("../models/SupportAccessRequest");
 const { generateInvoicePDF } = require("../utils/generateInvoice");
 const sendEmail = require("../utils/sendEmail");
 const { client: redisClient } = require("../utils/redisClient");
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const router = express.Router();
 
 const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
@@ -601,6 +602,7 @@ router.get("/payments", async (req, res) => {
       stats: { gmv, platformRevenue, inEscrow: escrowTotal, awaitingPayout: awaitingTotal },
       transactions: bookings.map((b) => ({
         id: b._id.toString().slice(-8).toUpperCase(),
+        bookingId: b._id.toString(),
         bookingRef: b._id.toString().slice(-8).toUpperCase(),
         customer: b.guest?.displayName || [b.guest?.firstName, b.guest?.lastName].filter(Boolean).join(" ") || b.guest?.email || "—",
         host: b.host?.displayName || [b.host?.firstName, b.host?.lastName].filter(Boolean).join(" ") || b.host?.email || "—",
@@ -609,6 +611,8 @@ router.get("/payments", async (req, res) => {
         commission: b.platformFee || 0,
         hostPayout: b.hostAmount || 0,
         status: b.escrowReleased ? "completed" : b.status === "cancelled" ? "refunded" : "escrow_held",
+        bookingStatus: b.status,
+        disputeFrozen: !!b.disputeFrozen,
         date: b.createdAt,
         currency: "GBP",
       })),
@@ -616,6 +620,42 @@ router.get("/payments", async (req, res) => {
   } catch (err) {
     console.error("Admin payments error:", err);
     res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /admin/payments/:bookingId/release — manually release escrow to host,
+// bypassing the automated 24h-post-checkout cron (utils/releaseEscrow.js).
+// Same eligibility rules as the cron, minus the time wait, so this can't
+// release a booking that isn't actually checked out or is dispute-frozen.
+router.post("/payments/:bookingId/release", async (req, res) => {
+  try {
+    const booking = await Booking.findById(req.params.bookingId).populate("host");
+    if (!booking) return res.status(404).json({ error: "Booking not found" });
+    if (!booking.isPaid) return res.status(400).json({ error: "Booking was never paid" });
+    if (booking.escrowReleased) return res.status(400).json({ error: "Funds already released for this booking" });
+    if (booking.disputeFrozen) return res.status(400).json({ error: "Booking is frozen pending dispute review" });
+    if (booking.status !== "completed") return res.status(400).json({ error: "Booking hasn't checked out yet" });
+    if (!booking.host?.stripeAccountId) return res.status(400).json({ error: "Host has no connected Stripe account" });
+
+    const amountToHost = Math.round((booking.hostAmount || 0) * 100);
+    if (amountToHost <= 0) return res.status(400).json({ error: "Nothing to release for this booking" });
+
+    const transfer = await stripe.transfers.create({
+      amount: amountToHost,
+      currency: "gbp",
+      destination: booking.host.stripeAccountId,
+      transfer_group: booking._id.toString(),
+      description: `Manual admin payout release for booking ${booking._id}`,
+    });
+
+    booking.escrowReleased = true;
+    booking.stripeTransferId = transfer.id;
+    await booking.save();
+
+    res.json({ success: true, transferId: transfer.id });
+  } catch (err) {
+    console.error("Admin release funds error:", err);
+    res.status(500).json({ error: err.message || "Server error" });
   }
 });
 
