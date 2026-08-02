@@ -117,7 +117,7 @@ router.use(adminAuth);
 // /stats and /overview-analytics are intentionally left ungated (every tier
 // sees the dashboard home). Team management stays full_admin-only below.
 router.use(["/users", "/verifications", "/reports", "/properties", "/bookings"], requireAdminRole("support"));
-router.use(["/payments", "/payouts", "/invoices"], requireAdminRole("finance"));
+router.use(["/payments", "/payouts", "/invoices", "/commission"], requireAdminRole("finance"));
 router.use(["/markets", "/categories", "/broadcast"], requireAdminRole("content"));
 router.use(["/team", "/settings"], requireAdminRole());
 
@@ -928,7 +928,7 @@ router.get("/markets", async (req, res) => {
 
 router.post("/markets", async (req, res) => {
   try {
-    const { name, flag, cities, status, phase, order } = req.body;
+    const { name, flag, cities, status, phase, order, currency, primaryLanguage } = req.body;
     if (!name) return res.status(400).json({ error: "Market name is required" });
 
     const existing = await Market.findOne({ name });
@@ -941,6 +941,8 @@ router.post("/markets", async (req, res) => {
       status: status || "planned",
       phase: phase || "",
       order: Number.isFinite(order) ? order : 0,
+      currency: currency || "GBP",
+      primaryLanguage: primaryLanguage || "English",
     });
     res.status(201).json({ success: true, market });
   } catch (err) {
@@ -950,7 +952,7 @@ router.post("/markets", async (req, res) => {
 
 router.patch("/markets/:id", async (req, res) => {
   try {
-    const { name, flag, cities, status, phase, order } = req.body;
+    const { name, flag, cities, status, phase, order, currency, primaryLanguage } = req.body;
     const update = {};
     if (name !== undefined) update.name = name;
     if (flag !== undefined) update.flag = flag;
@@ -958,6 +960,8 @@ router.patch("/markets/:id", async (req, res) => {
     if (status !== undefined) update.status = status;
     if (phase !== undefined) update.phase = phase;
     if (order !== undefined) update.order = order;
+    if (currency !== undefined) update.currency = currency;
+    if (primaryLanguage !== undefined) update.primaryLanguage = primaryLanguage;
 
     const market = await Market.findByIdAndUpdate(req.params.id, update, { new: true, runValidators: true });
     if (!market) return res.status(404).json({ error: "Market not found" });
@@ -972,6 +976,61 @@ router.delete("/markets/:id", async (req, res) => {
     const market = await Market.findByIdAndDelete(req.params.id);
     if (!market) return res.status(404).json({ error: "Market not found" });
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ─── Commission ─────────────────────────────────────────────────────────────────
+// Finance-tier, unlike /markets (content-tier) — commission math is real-money-
+// adjacent, so per-market rate overrides live here even though the markets
+// themselves are managed on the Markets page.
+router.get("/commission", async (req, res) => {
+  try {
+    const [settings, markets] = await Promise.all([
+      PlatformSettings.getSettings(),
+      Market.find().sort({ order: 1, createdAt: 1 }).select("name flag cities commissionRate commissionOverrideActive"),
+    ]);
+    res.json({ defaultCommissionRate: settings.defaultCommissionRate, markets });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+router.patch("/commission", async (req, res) => {
+  try {
+    const { defaultCommissionRate } = req.body;
+    if (defaultCommissionRate === undefined) return res.status(400).json({ error: "defaultCommissionRate is required" });
+    const rate = Number(defaultCommissionRate);
+    if (!Number.isFinite(rate) || rate < 0 || rate > 100) {
+      return res.status(400).json({ error: "defaultCommissionRate must be between 0 and 100" });
+    }
+    const settings = await PlatformSettings.getSettings();
+    settings.defaultCommissionRate = rate;
+    await settings.save();
+    res.json({ success: true, defaultCommissionRate: settings.defaultCommissionRate });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+router.patch("/commission/markets/:id", async (req, res) => {
+  try {
+    const { commissionRate, commissionOverrideActive } = req.body;
+    const update = {};
+    if (commissionRate !== undefined) {
+      const rate = commissionRate === null ? null : Number(commissionRate);
+      if (rate !== null && (!Number.isFinite(rate) || rate < 0 || rate > 100)) {
+        return res.status(400).json({ error: "commissionRate must be between 0 and 100" });
+      }
+      update.commissionRate = rate;
+    }
+    if (commissionOverrideActive !== undefined) update.commissionOverrideActive = !!commissionOverrideActive;
+
+    const market = await Market.findByIdAndUpdate(req.params.id, update, { new: true, runValidators: true })
+      .select("name flag cities commissionRate commissionOverrideActive");
+    if (!market) return res.status(404).json({ error: "Market not found" });
+    res.json({ success: true, market });
   } catch (err) {
     res.status(500).json({ error: "Server error" });
   }
@@ -1185,17 +1244,24 @@ router.get("/categories", async (req, res) => {
 
 router.post("/categories", async (req, res) => {
   try {
-    const { name, description, image, status } = req.body;
+    const { name, description, image, status, subcategories } = req.body;
     if (!name || !description) return res.status(400).json({ error: "Name and description are required" });
 
     const existing = await Category.findOne({ name });
     if (existing) return res.status(400).json({ error: "A category with that name already exists" });
+
+    const cleanSubcategories = Array.isArray(subcategories)
+      ? subcategories
+          .filter((s) => s?.name && s?.description)
+          .map((s) => ({ name: s.name, description: s.description, image: s.image || image || undefined }))
+      : [];
 
     const category = await Category.create({
       name,
       description,
       image: image || undefined,
       status: status === "draft" ? "draft" : "published",
+      subcategories: cleanSubcategories,
     });
     res.status(201).json({ success: true, category });
   } catch (err) {

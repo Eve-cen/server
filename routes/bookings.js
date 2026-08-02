@@ -17,6 +17,7 @@ const {
   calculateDailyPriceWithBreakdown,
   calculateHourlyPriceWithBreakdown,
 } = require("../utils/pricing");
+const { resolveCommissionRate } = require("../utils/commission");
 const googleCalendar = require("../utils/googleCalendar");
 const outlookCalendar = require("../utils/outlookCalendar");
 
@@ -441,12 +442,10 @@ router.post(
       totalPrice = Math.round((totalPrice - discount) * 100) / 100;
       if (isNaN(totalPrice) || totalPrice < 0) totalPrice = 0;
 
-      // Commission rates by duration type
-      const commissionRate = (() => {
-        if (effectivePricingType === "ANNUAL") return 0.03;
-        if (effectivePricingType === "MONTHLY") return 0.06;
-        return 0.10;
-      })();
+      // Commission rate: fixed for ANNUAL/MONTHLY, otherwise the platform
+      // default unless the property's market has an active override — see
+      // utils/commission.js and the admin Commission Settings page.
+      const commissionRate = await resolveCommissionRate(effectivePricingType, property);
 
       const platformFee = Math.round(totalPrice * commissionRate * 100) / 100;
       const hostAmount = Math.round((totalPrice - platformFee) * 100) / 100;

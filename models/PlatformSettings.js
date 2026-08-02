@@ -19,6 +19,11 @@ const platformSettingsSchema = new mongoose.Schema(
     requireAdmin2FA: { type: Boolean, default: true },
     // How long an admin session (JWT) stays valid before requiring re-login.
     sessionTimeoutMinutes: { type: Number, default: 480 },
+    // Base commission rate (%) for HOURLY/DAILY/WEEKLY bookings when no
+    // active per-market override applies (see Market.commissionRate /
+    // commissionOverrideActive). ANNUAL (3%) and MONTHLY (6%) stay fixed —
+    // this only replaces the old hardcoded 10% "everything else" tier.
+    defaultCommissionRate: { type: Number, default: 10, min: 0, max: 100 },
   },
   { timestamps: true }
 );
