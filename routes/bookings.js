@@ -450,6 +450,14 @@ router.post(
         if (totalNights >= 30 && property.pricing.discounts?.monthly)
           discount += totalPrice * 0.2;
       }
+      // Extended Hours Discount -- HOURLY bookings only, host sets their own
+      // rate (0 = disabled), applies once a single booking exceeds 3 hours.
+      if (effectivePricingType === "HOURLY" && totalHours > 3) {
+        const extendedHoursRate = Number(property.pricing.discounts?.extendedHours) || 0;
+        if (extendedHoursRate > 0) {
+          discount += totalPrice * (extendedHoursRate / 100);
+        }
+      }
       totalPrice = Math.round((totalPrice - discount) * 100) / 100;
       if (isNaN(totalPrice) || totalPrice < 0) totalPrice = 0;
 

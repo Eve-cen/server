@@ -77,6 +77,10 @@ const propertySchema = new mongoose.Schema(
         lastMinute: { type: Boolean, default: false },
         weekly: { type: Boolean, default: false },
         monthly: { type: Boolean, default: false },
+        // Per-host percentage (0 = disabled) for HOURLY bookings longer than
+        // 3 hours -- unlike the other discounts above, which are booleans at
+        // a fixed platform-wide rate, hosts set their own rate for this one.
+        extendedHours: { type: Number, default: 0, min: 0, max: 100 },
       },
       // Optional per-day-of-week rate overrides for HOURLY/DAILY pricing
       // only (a week/month/year-long stay spans all 7 days regardless of
