@@ -118,6 +118,37 @@ router.post("/login", authLimiter, async (req, res) => {
     if (password !== "otp-flow") {
       const isMatch = await bcrypt.compare(password, user.password);
       if (!isMatch) return res.status(401).json({ error: "Invalid credentials" });
+
+      // Real password verified -- log in directly, no OTP step. The
+      // "otp-flow" sentinel below is the existing passwordless path, which
+      // still always requires OTP verification afterward.
+      const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
+        expiresIn: "7d",
+      });
+      const refreshToken = jwt.sign(
+        { id: user._id },
+        process.env.REFRESH_TOKEN_SECRET,
+        { expiresIn: "30d" }
+      );
+      await redisClient.setEx(
+        `refresh:${user._id}`,
+        30 * 24 * 60 * 60,
+        refreshToken
+      );
+
+      return res.json({
+        token,
+        refreshToken,
+        message: "Login successful",
+        user: {
+          id: user._id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          isVerified: user.isVerified,
+          isHost: user.isHost,
+        },
+      });
     }
 
     const otp = generateOTP();
