@@ -126,6 +126,13 @@ router.post(
         features = JSON.parse(req.body.features);
         extras = JSON.parse(req.body.extras || "[]");
         pricing = JSON.parse(req.body.pricing);
+        // The client sends discounts as its own field, separate from
+        // pricing -- fold it in here since that's where the schema keeps it
+        // (pricing.discounts). This field was previously never read at all,
+        // so every discount toggle a host set was silently discarded.
+        if (req.body.discounts) {
+          pricing.discounts = JSON.parse(req.body.discounts);
+        }
         bookingSettings = JSON.parse(req.body.bookingSettings || "{}");
         blockedDates = req.body.blockedDates
           ? JSON.parse(req.body.blockedDates)
@@ -929,14 +936,21 @@ router.get("/:id/availability", async (req, res) => {
 });
 
 // ✅ Update a property (with R2 upload + cache bust)
-router.put("/:id", auth, upload.array("images", 45), async (req, res) => {
+router.put(
+  "/:id",
+  auth,
+  upload.fields([
+    { name: "images", maxCount: 45 },
+    { name: "leaseFile", maxCount: 1 },
+  ]),
+  async (req, res) => {
   try {
     const property = await Property.findById(req.params.id);
 
     if (!property) {
       cleanupTempFiles([
         ...(req.files?.images || []),
-        ...(req.files?.cqcDocuments || []),
+        ...(req.files?.leaseFile || []),
       ]);
       return res.status(404).json({ error: "Property not found" });
     }
@@ -944,7 +958,7 @@ router.put("/:id", auth, upload.array("images", 45), async (req, res) => {
     if (property.host.toString() !== req.user.id) {
       cleanupTempFiles([
         ...(req.files?.images || []),
-        ...(req.files?.cqcDocuments || []),
+        ...(req.files?.leaseFile || []),
       ]);
       return res.status(403).json({
         error: "Unauthorized: You are not the host of this property",
@@ -1033,9 +1047,9 @@ router.put("/:id", auth, upload.array("images", 45), async (req, res) => {
       }
     }
 
-    if (req.files?.length > 0) {
+    if (req.files?.images?.length > 0) {
       try {
-        const newR2Urls = await uploadFilesToR2(req.files);
+        const newR2Urls = await uploadFilesToR2(req.files.images);
         property.images = [...property.images, ...newR2Urls];
         if (!property.coverImage) property.coverImage = newR2Urls[0];
       } catch (uploadError) {
@@ -1068,6 +1082,15 @@ router.put("/:id", auth, upload.array("images", 45), async (req, res) => {
     }
     if (extras) property.extras = extras;
     if (pricing) property.pricing = pricing;
+    if (req.body.discounts) {
+      try {
+        const discounts = JSON.parse(req.body.discounts);
+        property.pricing.discounts = { ...(property.pricing.discounts?.toObject?.() || property.pricing.discounts || {}), ...discounts };
+        property.markModified("pricing");
+      } catch {
+        // ignore malformed discounts payload rather than failing the whole update
+      }
+    }
     if (bookingSettings) property.bookingSettings = bookingSettings;
     if (category) property.category = category;
     // FIX: availability and blockedDates were missing from PUT
@@ -1081,6 +1104,22 @@ router.put("/:id", auth, upload.array("images", 45), async (req, res) => {
     }
     if (req.body.listingTerms !== undefined) {
       property.listingTerms = String(req.body.listingTerms).trim();
+    }
+
+    const leaseFiles = req.files?.leaseFile || [];
+    if (leaseFiles.length > 0) {
+      try {
+        const uploadedLeaseUrls = await uploadFilesToR2(leaseFiles);
+        property.leaseAgreement = uploadedLeaseUrls[0]; // Only one file expected
+      } catch (uploadError) {
+        console.error("Error uploading lease agreement to R2:", uploadError);
+        return res.status(500).json({
+          error: "Failed to upload lease agreement",
+          details: uploadError.message,
+        });
+      }
+    } else if (req.body.existingLeaseAgreement !== undefined) {
+      property.leaseAgreement = req.body.existingLeaseAgreement || null;
     }
 
     const updatedProperty = await property.save();

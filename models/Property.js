@@ -74,6 +74,7 @@ const propertySchema = new mongoose.Schema(
       annual: { type: Number, default: 0 },
       discounts: {
         newListing: { type: Boolean, default: false },
+        lastMinute: { type: Boolean, default: false },
         weekly: { type: Boolean, default: false },
         monthly: { type: Boolean, default: false },
       },

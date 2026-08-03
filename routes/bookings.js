@@ -439,6 +439,12 @@ router.post(
       if (property.pricing.pricingType === "DAILY") {
         if (property.pricing.discounts?.newListing)
           discount += totalPrice * 0.2;
+        // "Booking within a few days of arrival" -- 48h is the common
+        // last-minute-deal threshold and matches the discount's own copy
+        // in CreateSpace.jsx/EditSpace.jsx ("within a few days of arrival").
+        const hoursUntilCheckIn = (checkInDate - new Date()) / (1000 * 60 * 60);
+        if (hoursUntilCheckIn <= 48 && property.pricing.discounts?.lastMinute)
+          discount += totalPrice * 0.01;
         if (totalNights >= 7 && property.pricing.discounts?.weekly)
           discount += totalPrice * 0.1;
         if (totalNights >= 30 && property.pricing.discounts?.monthly)
