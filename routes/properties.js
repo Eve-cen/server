@@ -13,6 +13,7 @@ const User = require("../models/User");
 const Report = require("../models/Report");
 const makeUserHost = require("../utils/stripeConnect");
 const sendEmail = require("../utils/sendEmail");
+const { geocodeAddress } = require("../utils/geocode");
 const { client } = require("../utils/redisClient");
 
 const router = express.Router();
@@ -353,6 +354,17 @@ router.post(
         return res.status(400).json({
           message: "Time blocks are required for custom availability",
         });
+      }
+
+      // ── Fill in coordinates if the client didn't send real ones ──
+      // (host typed an address without picking a Places autocomplete
+      // suggestion, or the picker failed silently) -- without this, the
+      // listing publishes fine and shows in search/lists, but never gets a
+      // pin on the search page map, which only plots listings with a
+      // non-zero lat/lng.
+      if (!coordinates?.latitude && !coordinates?.longitude) {
+        const geocoded = await geocodeAddress(location || {});
+        if (geocoded) coordinates = { ...coordinates, ...geocoded };
       }
 
       // ── Save property ──
@@ -1091,6 +1103,16 @@ router.put(
     }
     if (location) property.location = location;
     if (coordinates) property.coordinates = coordinates;
+
+    // Same fallback as create -- if the property still has no real
+    // coordinates after applying whatever this request sent (address
+    // edited without re-picking a Places suggestion, or coordinates were
+    // never set to begin with), geocode its current address so it isn't
+    // permanently missing from the search page map.
+    if (!property.coordinates?.latitude && !property.coordinates?.longitude) {
+      const geocoded = await geocodeAddress(property.location || {});
+      if (geocoded) property.coordinates = geocoded;
+    }
     if (features) {
       const existingFeatures = property.features?.toObject
         ? property.features.toObject()
