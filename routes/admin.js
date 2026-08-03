@@ -7,6 +7,7 @@ const User = require("../models/User");
 const Booking = require("../models/Booking");
 const Property = require("../models/Property");
 const Report = require("../models/Report");
+const { geocodeAddress } = require("../utils/geocode");
 const Payment = require("../models/Payment");
 const Review = require("../models/Review");
 const Market = require("../models/Market");
@@ -566,6 +567,39 @@ router.get("/properties", async (req, res) => {
     Property.countDocuments(filter),
   ]);
   res.json({ properties, total, page: parseInt(page), pages: Math.ceil(total / parseInt(limit)) });
+});
+
+// One-off fix for listings created before coordinates were reliably
+// captured (or before the create/update routes gained their own
+// geocoding fallback) -- finds every property still missing coordinates
+// and geocodes it from its saved address, so a host never has to
+// manually re-save just to get a map pin.
+router.post("/properties/backfill-coordinates", async (req, res) => {
+  try {
+    const properties = await Property.find({
+      $or: [
+        { "coordinates.latitude": { $exists: false } },
+        { "coordinates.latitude": null },
+        { "coordinates.latitude": 0 },
+      ],
+    });
+
+    const results = [];
+    for (const property of properties) {
+      const geocoded = await geocodeAddress(property.location || {});
+      if (geocoded) {
+        property.coordinates = geocoded;
+        await property.save();
+        results.push({ id: property._id, title: property.title, status: "updated", coordinates: geocoded });
+      } else {
+        results.push({ id: property._id, title: property.title, status: "failed" });
+      }
+    }
+
+    res.json({ success: true, count: results.length, results });
+  } catch (err) {
+    res.status(500).json({ error: "Backfill failed", details: err.message });
+  }
 });
 
 router.patch("/properties/:id", async (req, res) => {
