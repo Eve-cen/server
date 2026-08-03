@@ -505,15 +505,19 @@ router.get("/", async (req, res) => {
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
 
+    // Missing entirely before -- this is what Homepage.jsx's Featured
+    // Listings section calls (GET /properties?limit=8), so an unpublished
+    // listing kept showing there (and here generally) even though isActive
+    // was correctly set to false by PATCH /:id/status.
     const [properties, total] = await Promise.all([
-      Property.find()
+      Property.find({ isActive: true })
         .populate("host", "firstName lastName displayName email")
         .populate("category", "name")
         .populate("categories", "name")
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit),
-      Property.countDocuments(),
+      Property.countDocuments({ isActive: true }),
     ]);
 
     res.json({
@@ -601,7 +605,13 @@ router.get("/search", async (req, res) => {
       return res.json({ success: true, ...JSON.parse(cached), cached: true });
     }
 
-    let query = {};
+    // Never returned unpublished listings -- unlike the other property
+    // list routes (the aggregate route below, the sitemap route), this
+    // one had no isActive filter at all, so unpublishing a listing via
+    // My Listings never actually removed it from search/category
+    // browsing/"Browse by City", only from the /properties/:id detail
+    // page (which does check isActive) and the homepage's aggregate feed.
+    let query = { isActive: true };
 
     const searchTerm = searchQuery || location;
 
