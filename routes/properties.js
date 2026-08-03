@@ -161,7 +161,20 @@ router.post(
         categoriesArray = [];
         subcategoriesArray = [];
       }
-      const availability = req.body.availability || "all";
+      // req.body.availability is a JSON-stringified {openDays, openTime,
+      // closeTime, minNotice} object from the client (see EditSpace.jsx's
+      // PUT for the same shape) -- this used to assign the raw string
+      // straight onto the object-typed schema field below, which Mongoose
+      // silently coerced to all-defaults, so no listing's open days/hours
+      // were ever actually saved despite the step being required.
+      let availability = "all";
+      if (req.body.availability) {
+        try {
+          availability = JSON.parse(req.body.availability);
+        } catch {
+          availability = "all";
+        }
+      }
       const host = req.user.id;
 
       // Optional iCal feed URL set during creation (same field the
