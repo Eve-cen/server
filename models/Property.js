@@ -106,6 +106,11 @@ const propertySchema = new mongoose.Schema(
       // clean-up/prep time. Surfaced in EditSpace.jsx and PropertyAvailability.jsx.
       bufferBefore: { type: Number, default: 0 },
       bufferAfter: { type: Number, default: 0 },
+      // DAILY-pricing listings only: restricts a booking to exactly one
+      // calendar day, like a one-way flight, instead of allowing a
+      // multi-night stay. Off by default so existing listings keep their
+      // current multi-night behavior.
+      singleDayOnly: { type: Boolean, default: false },
     },
     firstFiveApproved: { type: Number, default: 0 },
     isActive: { type: Boolean, default: true },

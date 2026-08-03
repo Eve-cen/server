@@ -373,6 +373,11 @@ router.post(
         const checkInDay = new Date(checkInDate.getFullYear(), checkInDate.getMonth(), checkInDate.getDate());
         const checkOutDay = new Date(checkOutDate.getFullYear(), checkOutDate.getMonth(), checkOutDate.getDate());
         const calendarDays = Math.round((checkOutDay - checkInDay) / (1000 * 60 * 60 * 24));
+        if (property.bookingSettings?.singleDayOnly && calendarDays > 1) {
+          return res.status(400).json({
+            error: "This space only accepts single-day bookings — please select one calendar day",
+          });
+        }
         totalNights = Math.max(1, calendarDays);
         totalUnits = totalNights;
         {
