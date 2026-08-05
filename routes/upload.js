@@ -52,7 +52,7 @@ router.post("/", upload.single("file"), async (req, res) => {
     }
 
     // Upload to R2
-    const result = await uploadToR2(req.file.path, req.file.filename);
+    const result = await uploadToR2(req.file.path, req.file.filename, req.file.mimetype);
 
     res.status(200).json({
       success: true,
