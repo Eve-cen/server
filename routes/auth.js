@@ -119,6 +119,30 @@ router.post("/login", authLimiter, async (req, res) => {
       const isMatch = await bcrypt.compare(password, user.password);
       if (!isMatch) return res.status(401).json({ error: "Invalid credentials" });
 
+      if (!user.isVerified) {
+        // Correct password, but this account never completed email
+        // verification (e.g. signed up and never entered the OTP) -- fall
+        // through to the same OTP step the passwordless path uses below,
+        // instead of issuing a token straight away.
+        const otp = generateOTP();
+        await storeOTP(normalizedEmail, otp);
+
+        await sendEmail({
+          to: normalizedEmail,
+          subject: "Verify Your Email Address",
+          html: emailTemplate(
+            "Verify Your Email",
+            "Your account hasn't been verified yet. Your verification code is:",
+            otp
+          ),
+        });
+
+        return res.json({
+          message: "Please verify your email to finish logging in. OTP sent.",
+          requiresVerification: true,
+        });
+      }
+
       // Real password verified -- log in directly, no OTP step. The
       // "otp-flow" sentinel below is the existing passwordless path, which
       // still always requires OTP verification afterward.
