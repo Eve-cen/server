@@ -52,7 +52,7 @@ router.put("/", auth, upload.single("profileImage"), async (req, res) => {
     // Upload new image if provided
     if (req.file) {
       try {
-        const result = await uploadToR2(req.file.path, req.file.filename);
+        const result = await uploadToR2(req.file.path, req.file.filename, req.file.mimetype);
         profileImageUrl = result.location;
 
         // delete old avatar from R2

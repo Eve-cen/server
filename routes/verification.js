@@ -45,7 +45,7 @@ router.post("/business", auth, upload.single("idDocument"), async (req, res) => 
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    const result = await uploadToR2(tempPath, req.file.filename);
+    const result = await uploadToR2(tempPath, req.file.filename, req.file.mimetype);
 
     user.businessVerification = {
       companyName,

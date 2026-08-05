@@ -74,7 +74,7 @@ const cleanupTempFiles = (files) => {
 const uploadFilesToR2 = async (files) => {
   const uploadPromises = files.map(async (file) => {
     try {
-      const result = await uploadToR2(file.path, file.filename);
+      const result = await uploadToR2(file.path, file.filename, file.mimetype);
       return result.location;
     } catch (error) {
       console.error(`Error uploading ${file.filename}:`, error);

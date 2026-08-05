@@ -157,7 +157,7 @@ router.post(
 
     if (req.file && property.category === "Medical Rooms") {
       try {
-        const result = await uploadToR2(req.file.path, req.file.filename);
+        const result = await uploadToR2(req.file.path, req.file.filename, req.file.mimetype);
         licensePdfUrl = result.location;
       } catch (uploadErr) {
         if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
@@ -1269,11 +1269,11 @@ const cleanupTempFiles = (files) => {
 const uploadFileToR2 = async (
   filePath,
   fileName,
+  contentType,
   folder = "lease-agreements"
 ) => {
   try {
-    const uploadToR2 = require("../utils/r2"); // Adjust path to your R2 utility
-    const result = await uploadToR2(filePath, `${folder}/${fileName}`);
+    const result = await uploadToR2(filePath, `${folder}/${fileName}`, contentType);
     return result.location; // Return the full URL
   } catch (error) {
     console.error(`Error uploading ${fileName} to R2:`, error);
@@ -1287,9 +1287,8 @@ const uploadFileToR2 = async (
 const deleteFileFromR2 = async (fileUrl) => {
   try {
     if (!fileUrl) return;
-    const deleteFromR2 = require("../utils/r2");
     const fileName = fileUrl.split("/").pop();
-    await deleteFromR2(fileName);
+    await uploadToR2.deleteFromR2(fileName);
   } catch (error) {
     console.error(`Error deleting ${fileUrl} from R2:`, error);
   }
@@ -1344,7 +1343,7 @@ router.post(
       let leaseUrl;
       try {
         const fileName = `${bookingId}-${req.file.filename}`;
-        leaseUrl = await uploadFileToR2(req.file.path, fileName);
+        leaseUrl = await uploadFileToR2(req.file.path, fileName, req.file.mimetype);
       } catch (uploadError) {
         console.error("Error uploading lease to R2:", uploadError);
         cleanupTempFiles([req.file]);
