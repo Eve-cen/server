@@ -104,6 +104,10 @@ const bookingSchema = new mongoose.Schema(
     reviewed: { type: Boolean, default: false },
     completed: { type: Boolean, default: false },
     review: { type: mongoose.Schema.Types.ObjectId, ref: "Review" },
+    // Mirrors reviewed/review above, but for the host reviewing the guest
+    // (the other direction of the two-way review system).
+    hostReviewed: { type: Boolean, default: false },
+    hostReview: { type: mongoose.Schema.Types.ObjectId, ref: "Review" },
   },
   { timestamps: true }
 );

@@ -37,6 +37,7 @@ const setupAppleCalendarSync = require("./utils/syncAppleCalendars");
 
 const cron = require("node-cron");
 const markCompletedBookings = require("./jobs/markCompletedBookings");
+const revealPastDueReviews = require("./utils/revealPastDueReviews");
 const isSuspicious = require("./utils/suspicionEngine");
 const { connectRedis } = require("./utils/redisClient");
 
@@ -152,6 +153,9 @@ app.use(cors(corsOptions));
 cron.schedule("0 0 * * *", async () => {
   console.log("Running daily booking cleanup...");
   await markCompletedBookings();
+  await revealPastDueReviews().catch((err) =>
+    console.error("[Review Reveal] Cron error:", err.message)
+  );
 });
 
 // Sync connected external calendars (Google Calendar / Outlook / iCal feeds)
@@ -299,6 +303,7 @@ app.use("/api/categories", categoryRoutes);
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/availability", availabiltyRoutes);
 app.use("/api/reviews", reviewsRoutes);
+app.use("/api/platform-reviews", require("./routes/platformReviews"));
 app.use("/api/settings", settingsRoutes);
 app.use("/api/profile", profileRoutes); // New
 app.use("/api/messages", messageRoutes);

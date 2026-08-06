@@ -4,7 +4,7 @@ const Property = require("../models/Property");
 
 async function updatePropertyRating(propertyId) {
   const stats = await Review.aggregate([
-    { $match: { property: propertyId } },
+    { $match: { property: propertyId, type: "guest_to_host", revealed: true } },
     {
       $group: {
         _id: "$property",
