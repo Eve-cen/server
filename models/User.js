@@ -87,6 +87,9 @@ const userSchema = new mongoose.Schema(
     firstName: String,
     lastName: String,
     phoneNumber: String,
+    // Only ever set true by the SMS OTP verify-change flow in routes/settings.js --
+    // phoneNumber itself is only ever written there, never by a direct profile save.
+    isPhoneVerified: { type: Boolean, default: false },
     address: addressSchema,
     isVerified: { type: Boolean, default: false },
     isIdentityVerified: { type: Boolean, default: false },

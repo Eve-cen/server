@@ -3,6 +3,7 @@ const bcrypt = require("bcryptjs");
 const User = require("../models/User");
 const auth = require("../middleware/auth");
 const sendEmail = require("../utils/sendEmail");
+const sendSMS = require("../utils/sendSMS");
 const { generateOTP, storeOTP, verifyOTP } = require("../utils/otp");
 const { client: redisClient } = require("../utils/redisClient");
 const router = express.Router();
@@ -13,14 +14,11 @@ router.put("/personal", auth, async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: "User not found" });
-    user.displayName = req.body.firstName ?? user.firstName;
     user.firstName = req.body.firstName ?? user.firstName;
     user.lastName = req.body.lastName ?? user.lastName;
-    // Email is intentionally NOT settable here -- it can only be changed via
-    // the verified /email/request-change + /email/verify-change flow below,
-    // which requires the current password and confirms the new address.
-    user.phoneNumber = req.body.phoneNumber ?? user.phoneNumber;
-
+    // Email and phone are intentionally NOT settable here -- they can only be
+    // changed via their own verified request-change + verify-change flows
+    // below (phone requires an SMS OTP; email requires the current password).
     user.address = {
       floor: req.body.address?.floor,
       streetAddress: req.body.address?.streetAddress,
@@ -250,6 +248,76 @@ router.post("/email/verify-change", auth, async (req, res) => {
     });
   } catch (err) {
     console.error("Email change verify error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Request a phone number change (POST /api/settings/phone/request-change).
+// Sends a 6-digit OTP via SMS to the NEW number; phoneNumber is only ever
+// actually saved once that code is confirmed via /phone/verify-change below.
+router.post("/phone/request-change", auth, async (req, res) => {
+  const { phoneNumber } = req.body;
+  if (!phoneNumber)
+    return res.status(400).json({ error: "Phone number is required" });
+
+  const normalizedPhone = phoneNumber.trim();
+  if (!/^\+[1-9]\d{7,14}$/.test(normalizedPhone))
+    return res.status(400).json({
+      error: "Please enter a valid phone number in international format, e.g. +447700900000",
+    });
+
+  try {
+    const otp = generateOTP();
+    await storeOTP(`phonechange:${req.user.id}`, otp);
+    await redisClient.setEx(`pending-phone:${req.user.id}`, 600, normalizedPhone);
+
+    await sendSMS({
+      to: normalizedPhone,
+      body: `Your VenCome verification code is ${otp}. It expires in 10 minutes.`,
+    });
+
+    res.json({ message: "Verification code sent to your phone", requiresVerification: true });
+  } catch (err) {
+    if (err.code === "SMS_NOT_CONFIGURED") {
+      return res.status(503).json({ error: "Phone verification isn't available yet. Please try again later." });
+    }
+    console.error("Phone change request error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Confirm the phone change with the code sent by SMS
+// (POST /api/settings/phone/verify-change).
+router.post("/phone/verify-change", auth, async (req, res) => {
+  const { otp } = req.body;
+  if (!otp) return res.status(400).json({ error: "Verification code is required" });
+
+  try {
+    const pendingPhone = await redisClient.get(`pending-phone:${req.user.id}`);
+    if (!pendingPhone)
+      return res.status(400).json({ error: "No pending phone change found. Please request again." });
+
+    const valid = await verifyOTP(`phonechange:${req.user.id}`, otp);
+    if (!valid) return res.status(400).json({ error: "Invalid or expired code" });
+
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    user.phoneNumber = pendingPhone;
+    user.isPhoneVerified = true;
+    await user.save();
+    await redisClient.del(`pending-phone:${req.user.id}`);
+
+    res.json({
+      message: "Phone number updated successfully",
+      user: {
+        id: user._id,
+        phoneNumber: user.phoneNumber,
+        isPhoneVerified: user.isPhoneVerified,
+      },
+    });
+  } catch (err) {
+    console.error("Phone change verify error:", err);
     res.status(500).json({ error: "Server error" });
   }
 });

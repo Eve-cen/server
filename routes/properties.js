@@ -523,7 +523,7 @@ router.get("/", async (req, res) => {
     // was correctly set to false by PATCH /:id/status.
     const [properties, total] = await Promise.all([
       Property.find({ isActive: true })
-        .populate("host", "firstName lastName displayName email")
+        .populate("host", "firstName lastName displayName email profileImage")
         .populate("category", "name")
         .populate("categories", "name")
         .sort({ createdAt: -1 })
@@ -703,7 +703,7 @@ router.get("/search", async (req, res) => {
     }
 
     const properties = await Property.find(query)
-      .populate("host", "firstName lastName displayName email")
+      .populate("host", "firstName lastName displayName email profileImage")
       .populate("category", "name")
       .populate("categories", "name")
       .sort({ createdAt: -1 });
@@ -899,7 +899,7 @@ router.get("/:id", async (req, res) => {
     }
 
     const property = await Property.findById(propertyId)
-      .populate("host", "firstName lastName displayName email")
+      .populate("host", "firstName lastName displayName email profileImage")
       .populate("category", "name")
       .populate("categories", "name")
       .populate({

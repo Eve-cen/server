@@ -42,7 +42,7 @@ const upload = multer({
 // Update profile (PUT /api/profile)
 router.put("/", auth, upload.single("profileImage"), async (req, res) => {
   try {
-    const { displayName, bio } = req.body;
+    const { displayName, bio, firstName, lastName } = req.body;
 
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: "User not found" });
@@ -81,6 +81,10 @@ router.put("/", auth, upload.single("profileImage"), async (req, res) => {
     user.profileImage = profileImageUrl;
     user.displayName = displayName || user.displayName;
     user.bio = bio || user.bio;
+    user.firstName = firstName || user.firstName;
+    user.lastName = lastName || user.lastName;
+    // phoneNumber is intentionally NOT settable here -- see
+    // POST /settings/phone/request-change + /verify-change for the SMS-OTP-gated flow.
 
     const updatedUser = await user.save();
 
@@ -137,13 +141,51 @@ router.get("/export-data", auth, async (req, res) => {
 
 router.get("/:id", auth, async (req, res) => {
   try {
-    const user = await User.findById(req.params.id).select("-password"); // exclude sensitive fields
+    const targetId = req.params.id;
+    const user = await User.findById(targetId).select("-password");
 
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
 
-    res.json(user);
+    // Requester viewing their own profile gets the full document.
+    if (targetId === req.user.id) {
+      return res.json(user);
+    }
+
+    // Booking counterparties (either direction) get contact-relevant fields,
+    // including phone, so a host/guest can reach each other about a stay.
+    const sharedBooking = await Booking.findOne({
+      $or: [
+        { guest: req.user.id, host: targetId },
+        { guest: targetId, host: req.user.id },
+      ],
+    })
+      .select("_id")
+      .lean();
+
+    if (sharedBooking) {
+      return res.json({
+        _id: user._id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        displayName: user.displayName,
+        profileImage: user.profileImage,
+        bio: user.bio,
+        phoneNumber: user.phoneNumber,
+        email: user.email,
+      });
+    }
+
+    // No relationship with the requester — public-safe fields only.
+    res.json({
+      _id: user._id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      displayName: user.displayName,
+      profileImage: user.profileImage,
+      bio: user.bio,
+    });
   } catch (err) {
     if (err.name === "CastError") {
       return res.status(400).json({ error: "Invalid user id" });

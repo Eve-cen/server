@@ -742,7 +742,7 @@ router.get("/host", auth, async (req, res) => {
   try {
     const bookings = await Booking.find({ host: req.user.id })
       .populate("property", "title coverImage")
-      .populate("guest", "name profileImage")
+      .populate("guest", "firstName lastName displayName profileImage")
       .sort({ createdAt: -1 });
     res.json(bookings);
   } catch (err) {
@@ -755,6 +755,7 @@ router.get("/", auth, async (req, res) => {
   try {
     const bookings = await Booking.find({ guest: req.user.id })
       .populate("property", "title coverImage")
+      .populate("host", "firstName lastName displayName profileImage")
       .sort({ createdAt: -1 });
     res.json(bookings);
   } catch (err) {
