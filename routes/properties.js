@@ -342,6 +342,23 @@ router.post(
         }
       }
       const allImages = [...existingImages, ...r2ImageUrls];
+
+      // ── Photos are required to publish ──
+      // Nothing previously enforced this here or on the client's final
+      // Publish action (only the wizard's own step-4 gate did, which is
+      // bypassable via a resumed draft or back/forward navigation) -- a
+      // listing could go live with zero photos and no error at all.
+      if (allImages.length === 0) {
+        cleanupTempFiles([
+          ...(req.files?.images || []),
+          ...(req.files?.cqcDocuments || []),
+          ...(req.files?.leaseFile || []),
+        ]);
+        return res.status(400).json({
+          error: "Please add at least one photo before publishing your listing.",
+        });
+      }
+
       const coverImageIndex = parseInt(req.body.coverImageIndex) || 0;
       const coverImage =
         allImages.length > 0 ? allImages[coverImageIndex] || allImages[0] : null;
@@ -1524,6 +1541,16 @@ router.delete("/:id/images", auth, async (req, res) => {
     if (!imageUrls || !Array.isArray(imageUrls) || imageUrls.length === 0) {
       return res.status(400).json({
         error: "Please provide an array of image URLs to delete",
+      });
+    }
+
+    // A published listing must always have at least one photo -- this is
+    // the only path that removes images from an existing property (PUT
+    // only ever appends), so it's the one place that needs this guard.
+    const remaining = property.images.filter((img) => !imageUrls.includes(img));
+    if (remaining.length === 0) {
+      return res.status(400).json({
+        error: "You must keep at least one photo. Add a new one before removing this one.",
       });
     }
 
