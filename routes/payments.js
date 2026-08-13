@@ -35,6 +35,15 @@ router.post("/create-checkout-session", auth, async (req, res) => {
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
+      billing_address_collection: "required",
+      custom_text: isDeferred
+        ? {
+            submit: {
+              message:
+                "You will only be charged if your request is accepted by the host. If declined or not answered within 24 hours, this authorization is released and you are not charged.",
+            },
+          }
+        : undefined,
       line_items: [
         {
           price_data: {

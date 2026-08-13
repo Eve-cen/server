@@ -6,11 +6,15 @@ async function markCompletedBookings() {
   const result = await Booking.updateMany(
     {
       status: "confirmed",
-      checkOut: { $gt: now },
+      checkOut: { $lt: now },
       completed: false,
     },
     {
-      $set: { completed: true },
+      // status must reach "completed" for utils/releaseEscrow.js's hourly
+      // cron to ever find this booking -- it independently enforces its own
+      // 24h-post-checkout buffer, so this job only needs to react to
+      // checkout having passed, not wait an extra 24h itself.
+      $set: { completed: true, status: "completed" },
     }
   );
 

@@ -994,65 +994,33 @@ router.put("/:id/status", auth, async (req, res) => {
 });
 
 // ─── Refund policy helper ─────────────────────────────────────────────────────
-// Returns { refundPercent: 0-100, reason: string }. Tiers scale with how
-// strict the host's chosen policy (Property.bookingSettings.refundPolicy) is.
+// Single platform-wide policy (client-confirmed, supersedes the old
+// host-selectable moderate/strict/flexible/non-refundable tiers --
+// Property.bookingSettings.refundPolicy is no longer read here):
+//   <=72h before check-in: non-refundable
+//   72h-120h before check-in: 50% refund
+//   >=120h (5 days) before check-in: 100% refund
+// `policy` param kept (unused) so call sites don't need to change.
 function getRefundPolicy(policy, checkIn) {
   const now = new Date();
   const checkInDate = new Date(checkIn);
   const hoursUntilCheckIn = (checkInDate - now) / (1000 * 60 * 60);
 
-  if (policy === "non-refundable") {
-    return { refundPercent: 0, reason: "Non-refundable booking — no refund available" };
-  }
-
-  if (policy === "flexible") {
-    if (hoursUntilCheckIn >= 24) {
-      return {
-        refundPercent: 100,
-        reason: "Cancelled 24+ hours before check-in — full refund (flexible policy)",
-      };
-    }
-    return {
-      refundPercent: 50,
-      reason: "Cancelled less than 24 hours before check-in — 50% refund (flexible policy)",
-    };
-  }
-
-  if (policy === "strict") {
-    if (hoursUntilCheckIn >= 336) {
-      return {
-        refundPercent: 100,
-        reason: "Cancelled 14+ days before check-in — full refund (strict policy)",
-      };
-    }
-    if (hoursUntilCheckIn >= 168) {
-      return {
-        refundPercent: 50,
-        reason: "Cancelled 7-14 days before check-in — 50% refund (strict policy)",
-      };
-    }
-    return {
-      refundPercent: 0,
-      reason: "Cancelled less than 7 days before check-in — no refund (strict policy)",
-    };
-  }
-
-  // "moderate" (default)
   if (hoursUntilCheckIn >= 120) {
     return {
       refundPercent: 100,
-      reason: "Cancelled 5+ days before check-in — full refund (moderate policy)",
+      reason: "Cancelled 5+ days before check-in — full refund",
     };
   }
-  if (hoursUntilCheckIn >= 24) {
+  if (hoursUntilCheckIn > 72) {
     return {
       refundPercent: 50,
-      reason: "Cancelled 24 hours-5 days before check-in — 50% refund (moderate policy)",
+      reason: "Cancelled 3-5 days before check-in — 50% refund",
     };
   }
   return {
     refundPercent: 0,
-    reason: "Cancelled less than 24 hours before check-in — no refund (moderate policy)",
+    reason: "Cancelled within 72 hours of check-in — non-refundable",
   };
 }
 

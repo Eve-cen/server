@@ -3,6 +3,11 @@ const mongoose = require("mongoose");
 const propertySchema = new mongoose.Schema(
   {
     title: { type: String, required: true, trim: true },
+    // URL-friendly identifier for /property/:slug -- generated from title at
+    // creation, kept stable afterward (not regenerated on edit) so already
+    // shared/indexed links never break. sparse so pre-migration documents
+    // without one don't violate the unique index; utils/slugify.js backfills.
+    slug: { type: String, unique: true, sparse: true, trim: true },
     description: { type: String, required: true },
     whatsIncluded: { type: String, default: "" },
     // Optional host-authored terms for this specific listing (e.g. usage
