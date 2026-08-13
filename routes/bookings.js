@@ -994,33 +994,34 @@ router.put("/:id/status", auth, async (req, res) => {
 });
 
 // ─── Refund policy helper ─────────────────────────────────────────────────────
-// Single platform-wide policy (client-confirmed, supersedes the old
-// host-selectable moderate/strict/flexible/non-refundable tiers --
-// Property.bookingSettings.refundPolicy is no longer read here):
-//   <=72h before check-in: non-refundable
-//   72h-120h before check-in: 50% refund
-//   >=120h (5 days) before check-in: 100% refund
+// Single platform-wide policy (client-confirmed, latest version -- supersedes
+// both the old host-selectable moderate/strict/flexible/non-refundable tiers
+// and the earlier "Aug 8" 72h/120h version. Property.bookingSettings.refundPolicy
+// is no longer read here):
+//   >48h before check-in: 100% refund
+//   24h-48h before check-in: 75% refund (host keeps 25%)
+//   <24h before check-in: 50% refund (host keeps 50%)
 // `policy` param kept (unused) so call sites don't need to change.
 function getRefundPolicy(policy, checkIn) {
   const now = new Date();
   const checkInDate = new Date(checkIn);
   const hoursUntilCheckIn = (checkInDate - now) / (1000 * 60 * 60);
 
-  if (hoursUntilCheckIn >= 120) {
+  if (hoursUntilCheckIn > 48) {
     return {
       refundPercent: 100,
-      reason: "Cancelled 5+ days before check-in — full refund",
+      reason: "Cancelled more than 48 hours before check-in — full refund",
     };
   }
-  if (hoursUntilCheckIn > 72) {
+  if (hoursUntilCheckIn >= 24) {
     return {
-      refundPercent: 50,
-      reason: "Cancelled 3-5 days before check-in — 50% refund",
+      refundPercent: 75,
+      reason: "Cancelled 24-48 hours before check-in — 75% refund",
     };
   }
   return {
-    refundPercent: 0,
-    reason: "Cancelled within 72 hours of check-in — non-refundable",
+    refundPercent: 50,
+    reason: "Cancelled within 24 hours of check-in — 50% refund",
   };
 }
 
