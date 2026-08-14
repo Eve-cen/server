@@ -12,6 +12,10 @@ const subCategorySchema = new mongoose.Schema(
 const categorySchema = new mongoose.Schema(
   {
     name: { type: String, required: true, unique: true },
+    // URL-friendly identifier for /category/:slug -- same pattern as
+    // Property.slug, generated from name at creation; backfillCategorySlugs.js
+    // fills existing rows.
+    slug: { type: String, unique: true, sparse: true, trim: true },
     image: {
       type: String,
       default:

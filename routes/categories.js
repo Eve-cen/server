@@ -1,6 +1,7 @@
 const express = require("express");
 const Category = require("../models/Category");
 const Property = require("../models/Property"); // 👈 import Property model
+const { generateUniqueSlug } = require("../utils/slugify");
 const router = express.Router();
 
 // ✅ Create a new category
@@ -17,7 +18,8 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ error: "Category already exists" });
     }
 
-    const category = new Category({ name });
+    const slug = await generateUniqueSlug(Category, name);
+    const category = new Category({ name, slug });
     const savedCategory = await category.save();
     res.status(201).json(savedCategory);
   } catch (err) {
@@ -71,13 +73,18 @@ router.get("/with-counts", async (req, res) => {
 // ✅ Get one category and all its properties
 router.get("/:id", async (req, res) => {
   try {
-    const category = await Category.findById(req.params.id);
+    // Accept either a slug (SEO-friendly links) or a raw ObjectId (older
+    // shared/indexed links, sitemap entries created before slugs existed).
+    const isObjectId = /^[0-9a-fA-F]{24}$/.test(req.params.id);
+    const category = isObjectId
+      ? await Category.findById(req.params.id)
+      : await Category.findOne({ slug: req.params.id });
     if (!category) {
       return res.status(404).json({ error: "Category not found" });
     }
 
     // Find properties that belong to this category
-    const properties = await Property.find({ category: req.params.id })
+    const properties = await Property.find({ category: category._id })
       .populate("host", "name email") // Optional: populate host info
       .select("-__v"); // Exclude extra fields like __v
 

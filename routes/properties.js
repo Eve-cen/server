@@ -15,6 +15,7 @@ const makeUserHost = require("../utils/stripeConnect");
 const sendEmail = require("../utils/sendEmail");
 const { geocodeAddress } = require("../utils/geocode");
 const { client } = require("../utils/redisClient");
+const { generateUniqueSlug } = require("../utils/slugify");
 
 const router = express.Router();
 
@@ -385,8 +386,10 @@ router.post(
       }
 
       // ── Save property ──
+      const slug = await generateUniqueSlug(Property, title);
       const property = new Property({
         title,
+        slug,
         description,
         whatsIncluded: req.body.whatsIncluded || "",
         location,
@@ -442,7 +445,7 @@ router.post(
                 <tr><td style="padding:8px 0;color:#666;">Time</td><td style="padding:8px 0;font-weight:700;">${new Date().toLocaleString("en-GB")}</td></tr>
               </table>
               <a href=" https://www.vencome.com/admin " style="display:inline-block;padding:12px 24px;background:#305CDE;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;margin-right:12px;">View in Admin</a>
-              <a href=" https://www.vencome.com/property/${savedProperty._id} " style="display:inline-block;padding:12px 24px;background:#0A1628;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;">View Listing</a>
+              <a href=" https://www.vencome.com/property/${savedProperty.slug || savedProperty._id} " style="display:inline-block;padding:12px 24px;background:#0A1628;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;">View Listing</a>
             </div>
           `,
         }).catch((err) => console.error("Listing notification error:", err.message));
@@ -915,7 +918,15 @@ router.get("/:id", async (req, res) => {
       }
     }
 
-    const property = await Property.findById(propertyId)
+    // The URL param may be either a slug (SEO-friendly links) or a raw
+    // ObjectId (older shared/indexed links, emails, sitemap entries created
+    // before slugs existed) -- accept both so neither breaks.
+    const isObjectId = /^[0-9a-fA-F]{24}$/.test(propertyId);
+    const baseQuery = isObjectId
+      ? Property.findById(propertyId)
+      : Property.findOne({ slug: propertyId });
+
+    const property = await baseQuery
       .populate("host", "firstName lastName displayName email profileImage")
       .populate("category", "name")
       .populate("categories", "name")
@@ -1015,6 +1026,13 @@ router.put(
       return res.status(403).json({
         error: "Unauthorized: You are not the host of this property",
       });
+    }
+
+    // Backfill for listings created before slugs existed -- the slug itself
+    // stays stable across edits (never regenerated from an updated title) so
+    // existing shared/indexed links never break.
+    if (!property.slug) {
+      property.slug = await generateUniqueSlug(Property, property.title);
     }
 
     // Parse JSON fields if provided

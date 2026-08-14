@@ -332,9 +332,9 @@ app.get("/sitemap.xml", async (req, res) => {
     const Property = require("./models/Property");
     const Category = require("./models/Category");
     const [properties, blogs, categories] = await Promise.all([
-      Property.find({ isActive: true }).select("_id updatedAt").lean(),
+      Property.find({ isActive: true }).select("_id slug updatedAt").lean(),
       require("./models/Blog").find({ status: "published" }).select("slug updatedAt").lean(),
-      Category.find({ status: "published" }).select("_id updatedAt").lean(),
+      Category.find({ status: "published" }).select("_id slug updatedAt").lean(),
     ]);
 
     const allowedHosts = allowedOrigins.map((o) => o.replace(/^https?:\/\//, ""));
@@ -349,7 +349,7 @@ app.get("/sitemap.xml", async (req, res) => {
     ];
 
     const propertyUrls = properties.map((p) => ({
-      loc: `${baseUrl}/property/${p._id}`,
+      loc: `${baseUrl}/property/${p.slug || p._id}`,
       priority: "0.8",
       changefreq: "weekly",
       lastmod: p.updatedAt ? new Date(p.updatedAt).toISOString().split("T")[0] : undefined,
@@ -363,7 +363,7 @@ app.get("/sitemap.xml", async (req, res) => {
     }));
 
     const categoryUrls = categories.map((c) => ({
-      loc: `${baseUrl}/category/${c._id}`,
+      loc: `${baseUrl}/category/${c.slug || c._id}`,
       priority: "0.7",
       changefreq: "weekly",
       lastmod: c.updatedAt ? new Date(c.updatedAt).toISOString().split("T")[0] : undefined,
