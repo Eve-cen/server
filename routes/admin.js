@@ -237,6 +237,47 @@ router.patch("/users/:id/admin", requireAdminRole(), async (req, res) => {
 // Admin-triggered password reset — sends the same OTP email used by the
 // self-service "forgot password" flow, so the user finishes it themselves
 // on /forgot-password. Admin never sees or sets the new password.
+// Creates a host account directly, bypassing OTP signup entirely -- hosts
+// keep asking staff to build their listing for them, and waiting on OTP
+// codes back and forth isn't practical for that workflow. isVerified is set
+// true up front so /auth/login logs straight in with the returned password,
+// no OTP step (see the isVerified branch in that route). createdByAdmin is
+// the audit trail for this account not having gone through normal signup.
+router.post("/users/create-host", async (req, res) => {
+  try {
+    const { email, firstName, lastName, phoneNumber } = req.body;
+    if (!email) return res.status(400).json({ error: "Email is required" });
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const existing = await User.findOne({ email: normalizedEmail });
+    if (existing) return res.status(409).json({ error: "An account with this email already exists" });
+
+    const tempPassword = crypto.randomBytes(9).toString("base64url");
+    const hashedPassword = await bcrypt.hash(tempPassword, 12);
+
+    const user = new User({
+      email: normalizedEmail,
+      password: hashedPassword,
+      firstName: firstName || "",
+      lastName: lastName || "",
+      phoneNumber: phoneNumber || "",
+      isHost: true,
+      isVerified: true,
+      createdByAdmin: req.user.id,
+    });
+    await user.save();
+
+    res.status(201).json({
+      success: true,
+      tempPassword,
+      user: { id: user._id, email: user.email, firstName: user.firstName, lastName: user.lastName },
+    });
+  } catch (err) {
+    console.error("Admin create-host error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 router.post("/users/:id/reset-password", async (req, res) => {
   try {
     const user = await User.findById(req.params.id).select("email displayName firstName");

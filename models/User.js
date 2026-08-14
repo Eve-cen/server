@@ -97,6 +97,10 @@ const userSchema = new mongoose.Schema(
     venComeVerifiedAt: { type: Date, default: null },
     venComeVerifiedAppliedAt: { type: Date, default: null },
     isHost: { type: Boolean, default: false },
+    // Set only when an admin creates this account directly (see
+    // POST /admin/users/create-host) instead of the user signing up
+    // themselves -- the audit trail the client asked this feature to have.
+    createdByAdmin: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     newsletterOptIn: { type: Boolean, default: false },
     isAdmin: { type: Boolean, default: false },
     adminTitle: { type: String, default: "" }, // e.g. "Founder", "Tech Lead" — display only
