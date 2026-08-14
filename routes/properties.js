@@ -467,6 +467,8 @@ router.post(
         const sendEmail = require("../utils/sendEmail");
         const host = await User.findById(req.user.id).select("firstName lastName displayName email").lean();
         const hostName = host?.displayName || host?.firstName || "A host";
+        const categoryDoc = category ? await Category.findById(category).select("name").lean() : null;
+        const categoryName = categoryDoc?.name || "Uncategorized";
         const adminEmails = ["vencomeltd@gmail.com", "bashayr.alharthi@outlook.com"];
         sendEmail({
           to: adminEmails,
@@ -479,7 +481,7 @@ router.post(
               <table style="width:100%;border-collapse:collapse;margin:16px 0;">
                 <tr><td style="padding:8px 0;color:#666;">Listing</td><td style="padding:8px 0;font-weight:700;">${title}</td></tr>
                 <tr><td style="padding:8px 0;color:#666;">Host</td><td style="padding:8px 0;font-weight:700;">${hostName} (${host?.email || ""})</td></tr>
-                <tr><td style="padding:8px 0;color:#666;">Category</td><td style="padding:8px 0;font-weight:700;">${category || "Uncategorized"}</td></tr>
+                <tr><td style="padding:8px 0;color:#666;">Category</td><td style="padding:8px 0;font-weight:700;">${categoryName}</td></tr>
                 <tr><td style="padding:8px 0;color:#666;">Location</td><td style="padding:8px 0;font-weight:700;">${location?.city || ""}, ${location?.country || ""}</td></tr>
                 <tr><td style="padding:8px 0;color:#666;">Time</td><td style="padding:8px 0;font-weight:700;">${new Date().toLocaleString("en-GB")}</td></tr>
               </table>
