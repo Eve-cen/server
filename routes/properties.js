@@ -73,38 +73,53 @@ const cleanupTempFiles = (files) => {
   });
 };
 
+// Breakpoint widths generated per listing photo -- the client derives each
+// smaller variant's URL from the stored (largest) URL by swapping the
+// "-w1600.webp" suffix, so property.images keeps storing a single plain URL
+// string per photo (no schema change) while R2 actually holds all 4 sizes.
+const IMAGE_WIDTHS = [480, 800, 1200, 1600];
+
 // Shared by listing photos AND non-image documents (CQC compliance docs,
 // lease PDFs) uploaded through the same form fields -- only actual raster
-// images get re-encoded to WebP here, everything else uploads unchanged.
+// images get re-encoded to WebP variants here, everything else uploads
+// unchanged.
 const uploadFilesToR2 = async (files) => {
   const uploadPromises = files.map(async (file) => {
-    let uploadPath = file.path;
-    let uploadFilename = file.filename;
-    let uploadMimetype = file.mimetype;
-
-    if (file.mimetype.startsWith("image/") && file.mimetype !== "image/webp") {
-      const webpPath = `${file.path.slice(0, -path.extname(file.path).length)}.webp`;
+    if (!file.mimetype.startsWith("image/")) {
       try {
-        await sharp(file.path)
-          .resize({ width: 1600, withoutEnlargement: true })
-          .webp({ quality: 80 })
-          .toFile(webpPath);
-        fs.unlinkSync(file.path);
-        uploadPath = webpPath;
-        uploadFilename = `${uploadFilename.slice(0, -path.extname(uploadFilename).length)}.webp`;
-        uploadMimetype = "image/webp";
-      } catch (conversionError) {
-        console.error(`WebP conversion failed for ${file.filename}, uploading original:`, conversionError);
+        const result = await uploadToR2(file.path, file.filename, file.mimetype);
+        return result.location;
+      } catch (error) {
+        console.error(`Error uploading ${file.filename}:`, error);
+        if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+        throw error;
       }
     }
 
+    const baseName = file.filename.slice(0, -path.extname(file.filename).length);
+    const dir = path.dirname(file.path);
+
     try {
-      const result = await uploadToR2(uploadPath, uploadFilename, uploadMimetype);
+      const variants = await Promise.all(
+        IMAGE_WIDTHS.map(async (width) => {
+          const variantFilename = `${baseName}-w${width}.webp`;
+          const variantPath = path.join(dir, variantFilename);
+          await sharp(file.path)
+            .resize({ width, withoutEnlargement: true })
+            .webp({ quality: 80 })
+            .toFile(variantPath);
+          const result = await uploadToR2(variantPath, variantFilename, "image/webp");
+          if (fs.existsSync(variantPath)) fs.unlinkSync(variantPath);
+          return { width, location: result.location };
+        })
+      );
+      if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+      return variants.reduce((largest, v) => (v.width > largest.width ? v : largest)).location;
+    } catch (conversionError) {
+      console.error(`WebP variant generation failed for ${file.filename}, uploading original:`, conversionError);
+      const result = await uploadToR2(file.path, file.filename, file.mimetype);
+      if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
       return result.location;
-    } catch (error) {
-      console.error(`Error uploading ${uploadFilename}:`, error);
-      if (fs.existsSync(uploadPath)) fs.unlinkSync(uploadPath);
-      throw error;
     }
   });
   return await Promise.all(uploadPromises);
