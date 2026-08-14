@@ -537,6 +537,16 @@ router.get("/", async (req, res) => {
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
 
+    // Homepage's Featured Listings section hits this on every load
+    // (GET /properties?limit=8) with no caching -- unlike /search and the
+    // single-property route, which both cache for 600s. Same TTL-only
+    // pattern here (no active invalidation on write, same as /search).
+    const cacheKey = `properties:page:${page}:limit:${limit}`;
+    const cached = await client.get(cacheKey);
+    if (cached) {
+      return res.json({ success: true, ...JSON.parse(cached), cached: true });
+    }
+
     // Missing entirely before -- this is what Homepage.jsx's Featured
     // Listings section calls (GET /properties?limit=8), so an unpublished
     // listing kept showing there (and here generally) even though isActive
@@ -552,14 +562,17 @@ router.get("/", async (req, res) => {
       Property.countDocuments({ isActive: true }),
     ]);
 
-    res.json({
-      success: true,
+    const responsePayload = {
       count: properties.length,
       total,
       page,
       totalPages: Math.ceil(total / limit),
       properties,
-    });
+    };
+
+    await client.setEx(cacheKey, 600, JSON.stringify(responsePayload));
+
+    res.json({ success: true, ...responsePayload });
   } catch (err) {
     console.error("Error fetching properties:", err);
     res.status(500).json({ error: "Server error", details: err.message });
