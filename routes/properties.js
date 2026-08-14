@@ -3,6 +3,7 @@ const jwt = require("jsonwebtoken");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const sharp = require("sharp");
 const Property = require("../models/Property");
 const Category = require("../models/Category");
 const auth = require("../middleware/auth");
@@ -72,14 +73,37 @@ const cleanupTempFiles = (files) => {
   });
 };
 
+// Shared by listing photos AND non-image documents (CQC compliance docs,
+// lease PDFs) uploaded through the same form fields -- only actual raster
+// images get re-encoded to WebP here, everything else uploads unchanged.
 const uploadFilesToR2 = async (files) => {
   const uploadPromises = files.map(async (file) => {
+    let uploadPath = file.path;
+    let uploadFilename = file.filename;
+    let uploadMimetype = file.mimetype;
+
+    if (file.mimetype.startsWith("image/") && file.mimetype !== "image/webp") {
+      const webpPath = `${file.path.slice(0, -path.extname(file.path).length)}.webp`;
+      try {
+        await sharp(file.path)
+          .resize({ width: 1600, withoutEnlargement: true })
+          .webp({ quality: 80 })
+          .toFile(webpPath);
+        fs.unlinkSync(file.path);
+        uploadPath = webpPath;
+        uploadFilename = `${uploadFilename.slice(0, -path.extname(uploadFilename).length)}.webp`;
+        uploadMimetype = "image/webp";
+      } catch (conversionError) {
+        console.error(`WebP conversion failed for ${file.filename}, uploading original:`, conversionError);
+      }
+    }
+
     try {
-      const result = await uploadToR2(file.path, file.filename, file.mimetype);
+      const result = await uploadToR2(uploadPath, uploadFilename, uploadMimetype);
       return result.location;
     } catch (error) {
-      console.error(`Error uploading ${file.filename}:`, error);
-      if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+      console.error(`Error uploading ${uploadFilename}:`, error);
+      if (fs.existsSync(uploadPath)) fs.unlinkSync(uploadPath);
       throw error;
     }
   });
