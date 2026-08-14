@@ -56,26 +56,10 @@ router.post("/signup", authLimiter, async (req, res) => {
     });
     await user.save();
 
-    // Notify admins of new signup
-    const adminEmails = ["vencomeltd@gmail.com", "bashayr.alharthi@outlook.com"];
-    const roleLabel = isHost ? "Host" : "Customer";
-    sendEmail({
-      to: adminEmails,
-      subject: `New ${roleLabel} Signup — ${normalizedEmail}`,
-      html: `
-        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
-          <h2 style="color:#0A1628;">New ${roleLabel} Signup 🎉</h2>
-          <p>A new ${roleLabel.toLowerCase()} has just signed up on VenCome.</p>
-          <table style="width:100%;border-collapse:collapse;margin:16px 0;">
-            <tr><td style="padding:8px 0;color:#666;">Email</td><td style="padding:8px 0;font-weight:700;">${normalizedEmail}</td></tr>
-            <tr><td style="padding:8px 0;color:#666;">Role</td><td style="padding:8px 0;font-weight:700;">${roleLabel}</td></tr>
-            <tr><td style="padding:8px 0;color:#666;">Time</td><td style="padding:8px 0;font-weight:700;">${new Date().toLocaleString("en-GB")}</td></tr>
-          </table>
-          <a href="https://www.vencome.com/admin" style="display:inline-block;padding:12px 24px;background:#305CDE;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;">View in Admin Panel</a>
-        </div>
-      `,
-    });
-
+    // Admin "new signup" notification fires once identity is actually
+    // verified (see /auth/verify-login), not here on bare record creation —
+    // otherwise an email-only entry that never completes OTP still reports
+    // as a signup.
     const otp = generateOTP();
     await storeOTP(normalizedEmail, otp);
 
@@ -213,8 +197,30 @@ router.post("/verify-login", otpLimiter, async (req, res) => {
     const user = await User.findOne({ email: normalizedEmail });
     if (!user) return res.status(400).json({ error: "User not found" });
 
+    const wasAlreadyVerified = user.isVerified;
     user.isVerified = true;
     await user.save();
+
+    if (!wasAlreadyVerified) {
+      const adminEmails = ["vencomeltd@gmail.com", "bashayr.alharthi@outlook.com"];
+      const roleLabel = user.isHost ? "Host" : "Customer";
+      sendEmail({
+        to: adminEmails,
+        subject: `New ${roleLabel} Signup — ${normalizedEmail}`,
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+            <h2 style="color:#0A1628;">New ${roleLabel} Signup 🎉</h2>
+            <p>A new ${roleLabel.toLowerCase()} has just verified their email and signed up on VenCome.</p>
+            <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+              <tr><td style="padding:8px 0;color:#666;">Email</td><td style="padding:8px 0;font-weight:700;">${normalizedEmail}</td></tr>
+              <tr><td style="padding:8px 0;color:#666;">Role</td><td style="padding:8px 0;font-weight:700;">${roleLabel}</td></tr>
+              <tr><td style="padding:8px 0;color:#666;">Time</td><td style="padding:8px 0;font-weight:700;">${new Date().toLocaleString("en-GB")}</td></tr>
+            </table>
+            <a href="https://www.vencome.com/admin" style="display:inline-block;padding:12px 24px;background:#305CDE;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;">View in Admin Panel</a>
+          </div>
+        `,
+      });
+    }
 
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
       expiresIn: "7d",
