@@ -158,6 +158,23 @@ const propertySchema = new mongoose.Schema(
       maxAdvance: { type: String, default: "" },
       weekendAvailable: { type: Boolean, default: true },
       sameDayCutoff: { type: String, default: "" },
+      // openTime/closeTime above apply to every open day when hoursMode is
+      // "same" (the default, unchanged behavior). "custom" opts into
+      // per-day hours in dayHours instead -- open days not listed there
+      // fall back to openTime/closeTime.
+      is24Hours: { type: Boolean, default: false },
+      hoursMode: { type: String, enum: ["same", "custom"], default: "same" },
+      dayHours: [
+        {
+          day: {
+            type: String,
+            enum: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+          },
+          openTime: String,
+          closeTime: String,
+          is24Hours: { type: Boolean, default: false },
+        },
+      ],
     },
     customAvailability: {
       days: [
