@@ -93,6 +93,8 @@ router.get("/:id", async (req, res) => {
       isActive: true,
     })
       .populate("host", "firstName lastName displayName profileImage")
+      .populate("category", "name slug")
+      .populate("categories", "name slug")
       .select("-__v"); // Exclude extra fields like __v
 
     res.json({ category, properties });
