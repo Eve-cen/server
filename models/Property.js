@@ -195,6 +195,10 @@ const propertySchema = new mongoose.Schema(
       endTime: String,
       minBookingHours: { type: Number, default: 2 },
     },
+    // Number of identical bookable units this listing represents (e.g. 5
+    // identical chairs listed as one page) -- default 1 preserves today's
+    // single-unit behavior exactly for every existing listing.
+    unitsCount: { type: Number, default: 1, min: 1 },
     blockedDates: [
       {
         start: { type: Date, required: true },
@@ -205,6 +209,12 @@ const propertySchema = new mongoose.Schema(
         },
         bookingId: { type: mongoose.Schema.Types.ObjectId, ref: "Booking" },
         externalEventId: String,
+        // null/unset = blocks all units (today's behavior, and the default
+        // for every pre-existing entry); a number 1..unitsCount = blocks
+        // only that specific unit. Guest bookings always get a real,
+        // specific value here; only host-created manual blocks and
+        // synced-external blocks can be "all".
+        unitIndex: { type: Number, default: null },
       },
     ],
     icalUrl: String,

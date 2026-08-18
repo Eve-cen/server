@@ -13,6 +13,7 @@ const fs = require("fs");
 const { randomUUID } = require("crypto");
 const uploadToR2 = require("../utils/uploadService");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+const { getUnitOccupancy, isFullyBooked, pickAvailableUnit } = require("../utils/unitAvailability");
 const {
   calculateDailyPriceWithBreakdown,
   calculateHourlyPriceWithBreakdown,
@@ -192,28 +193,15 @@ router.post(
         return res.status(400).json({ error: "Cannot book in the past" });
       }
 
-      // 3. Prevent double booking
-      const conflict = await Booking.findOne({
-        property: propertyId,
-        status: { $in: ["confirmed", "pending"] },
-        checkIn: { $lt: checkOutDate },
-        checkOut: { $gt: checkInDate },
-      });
-      if (conflict) {
-        return res
-          .status(409)
-          .json({ error: "These dates are already booked" });
-      }
-
-      // 4. Check host-blocked dates
-      const isBlocked = property.blockedDates?.some(({ start, end }) => {
-        const blockStart = new Date(start);
-        const blockEnd = new Date(end);
-        return checkInDate < blockEnd && checkOutDate > blockStart;
-      });
-      if (isBlocked) {
+      // 3/4. Prevent double booking -- checks both existing bookings and
+      // host-blocked dates together, accounting for Property.unitsCount
+      // (identical bookable units, e.g. 5 chairs on one listing) so up to
+      // unitsCount overlapping bookings can coexist instead of only 1.
+      const occupancy = await getUnitOccupancy(property, checkInDate, checkOutDate);
+      if (isFullyBooked(occupancy, property.unitsCount)) {
         return res.status(409).json({ error: "These dates are unavailable" });
       }
+      const assignedUnit = pickAvailableUnit(occupancy, property.unitsCount);
 
       // 5. Check availability setting
       if (property.availability && property.availability !== "all") {
@@ -476,6 +464,7 @@ router.post(
         host: property.host._id,
         checkIn: checkInDate,
         checkOut: checkOutDate,
+        unitIndex: assignedUnit,
         guests: guests || 1,
         extras: selectedExtras,
         totalPrice,
@@ -529,6 +518,7 @@ router.post(
               end: checkOutDate,
               reason: "booked",
               bookingId: booking._id,
+              unitIndex: booking.unitIndex,
             },
           },
         });
@@ -881,6 +871,7 @@ router.put("/:id/status", auth, async (req, res) => {
             end: booking.checkOut,
             reason: "booked",
             bookingId: booking._id,
+            unitIndex: booking.unitIndex,
           },
         };
       }

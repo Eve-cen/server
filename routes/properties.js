@@ -13,6 +13,7 @@ const validatePricing = require("../middleware/validatePricing");
 const User = require("../models/User");
 const Report = require("../models/Report");
 const makeUserHost = require("../utils/stripeConnect");
+const { getUnitOccupancy, isFullyBooked } = require("../utils/unitAvailability");
 const sendEmail = require("../utils/sendEmail");
 const { geocodeAddress } = require("../utils/geocode");
 const { client } = require("../utils/redisClient");
@@ -449,10 +450,12 @@ router.post(
         subcategories: subcategoriesArray,
         availability,
         timeBlocks,
+        unitsCount: parseInt(req.body.unitsCount, 10) || 1,
         blockedDates: blockedDates.map((d) => ({
           start: new Date(d.start),
           end: new Date(d.end),
           reason: d.reason || "personal",
+          unitIndex: d.unitIndex ?? null,
         })),
         cqcDocuments: cqcDocumentUrls,
         leaseAgreement: leaseAgreementUrl, // ✅ NEW: Added lease agreement field
@@ -758,29 +761,39 @@ router.get("/search", async (req, res) => {
       if (max !== undefined) query["minRentalDays"].$lte = max;
     }
 
-    // Exclude properties with any blocked date range overlapping the requested stay.
-    // blockedDates is kept in sync with confirmed bookings (pushed on confirm, pulled
-    // on decline/cancel), so this single check covers both manual blocks and bookings.
+    // Date-range availability (checkIn/checkOut) can't be expressed as a
+    // single Mongo query filter anymore now that a listing can have more
+    // than one bookable unit (Property.unitsCount) -- excluding "any
+    // overlap" would wrongly hide a 5-chair listing the moment 1 chair is
+    // booked. Fetch candidates first, then filter in memory using the same
+    // occupancy logic routes/bookings.js uses for the actual booking
+    // conflict check, so both stay consistent. Data scale here is small
+    // (property count, not booking count), so this is cheap.
+    let requestedStart = null;
+    let requestedEnd = null;
     if (checkIn && checkOut) {
-      const requestedStart = new Date(checkIn);
-      const requestedEnd = new Date(checkOut);
-      if (!Number.isNaN(requestedStart.getTime()) && !Number.isNaN(requestedEnd.getTime())) {
-        query.blockedDates = {
-          $not: {
-            $elemMatch: {
-              start: { $lt: requestedEnd },
-              end: { $gt: requestedStart },
-            },
-          },
-        };
+      const parsedStart = new Date(checkIn);
+      const parsedEnd = new Date(checkOut);
+      if (!Number.isNaN(parsedStart.getTime()) && !Number.isNaN(parsedEnd.getTime())) {
+        requestedStart = parsedStart;
+        requestedEnd = parsedEnd;
       }
     }
 
-    const properties = await Property.find(query)
+    let properties = await Property.find(query)
       .populate("host", "firstName lastName displayName email profileImage")
       .populate("category", "name")
       .populate("categories", "name")
       .sort({ createdAt: -1 });
+
+    if (requestedStart && requestedEnd) {
+      const availability = await Promise.all(
+        properties.map((property) => getUnitOccupancy(property, requestedStart, requestedEnd))
+      );
+      properties = properties.filter(
+        (property, index) => !isFullyBooked(availability[index], property.unitsCount)
+      );
+    }
 
     const responsePayload = { count: properties.length, properties };
 
@@ -1227,13 +1240,24 @@ router.put(
     }
     if (bookingSettings) property.bookingSettings = bookingSettings;
     if (category) property.category = category;
+    if (req.body.unitsCount !== undefined) {
+      property.unitsCount = parseInt(req.body.unitsCount, 10) || 1;
+    }
     // FIX: availability and blockedDates were missing from PUT
     if (availability) property.availability = availability;
     if (blockedDates) {
+      // Preserve bookingId/externalEventId/unitIndex -- dropping them here
+      // (as this used to) breaks the auto-unblock on decline/cancel, the
+      // iCal dedup logic, and now the unit-occupancy tracking too, since
+      // EditSpace.jsx round-trips blockedDates through this route on every
+      // listing save. Matches the PATCH /:id/availability handler below.
       property.blockedDates = blockedDates.map((d) => ({
         start: new Date(d.start),
         end: new Date(d.end),
-        reason: d.reason || "blocked",
+        reason: d.reason || "personal",
+        bookingId: d.bookingId || undefined,
+        externalEventId: d.externalEventId || undefined,
+        unitIndex: d.unitIndex ?? null,
       }));
     }
     if (req.body.listingTerms !== undefined) {
@@ -1342,6 +1366,7 @@ router.patch("/:id/availability", auth, async (req, res) => {
         reason: d.reason || "personal",
         bookingId: d.bookingId || undefined,
         externalEventId: d.externalEventId || undefined,
+        unitIndex: d.unitIndex ?? null,
       }));
     }
 

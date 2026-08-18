@@ -1,0 +1,64 @@
+// Shared unit-occupancy logic for listings with more than one identical
+// bookable unit (Property.unitsCount) -- used by both routes/bookings.js
+// (conflict-check + assignment on booking creation) and routes/properties.js
+// (excluding fully-booked listings from search results), so the "which
+// units are taken for this date range" algorithm lives in exactly one place.
+const Booking = require("../models/Booking");
+
+// [start1, end1) overlaps [start2, end2) -- same convention already used
+// throughout routes/bookings.js.
+const rangesOverlap = (aStart, aEnd, bStart, bEnd) => aStart < bEnd && aEnd > bStart;
+
+// Returns { blockedAll, takenUnits } for a property + date range.
+// blockedAll is true if a manual/external block with no specific unit
+// (unitIndex null) overlaps -- that closes every unit regardless of count.
+// takenUnits is the set of specific unit numbers occupied by overlapping
+// pending/confirmed bookings or per-unit manual blocks.
+async function getUnitOccupancy(property, checkIn, checkOut) {
+  const takenUnits = new Set();
+  let blockedAll = false;
+
+  const overlappingBookings = await Booking.find({
+    property: property._id,
+    status: { $in: ["confirmed", "pending"] },
+    checkIn: { $lt: checkOut },
+    checkOut: { $gt: checkIn },
+  }).select("unitIndex");
+
+  for (const booking of overlappingBookings) {
+    // Bookings made before unitIndex existed default to unit 1 rather than
+    // being silently ignored -- they're still real, occupying bookings.
+    takenUnits.add(booking.unitIndex == null ? 1 : booking.unitIndex);
+  }
+
+  for (const block of property.blockedDates || []) {
+    // "booked" entries mirror confirmed bookings (pushed on host approval/
+    // instant-book confirm) -- already fully covered by the Booking query
+    // above, which is the source of truth and also catches pending ones.
+    if (block.reason === "booked") continue;
+    if (!rangesOverlap(checkIn, checkOut, new Date(block.start), new Date(block.end))) continue;
+
+    if (block.unitIndex == null) {
+      blockedAll = true;
+    } else {
+      takenUnits.add(block.unitIndex);
+    }
+  }
+
+  return { blockedAll, takenUnits };
+}
+
+function isFullyBooked(occupancy, unitsCount) {
+  return occupancy.blockedAll || occupancy.takenUnits.size >= (unitsCount || 1);
+}
+
+// Lowest free unit number. Caller should check isFullyBooked first --
+// returns null if none are free (shouldn't happen if that check passed).
+function pickAvailableUnit(occupancy, unitsCount) {
+  for (let unit = 1; unit <= (unitsCount || 1); unit += 1) {
+    if (!occupancy.takenUnits.has(unit)) return unit;
+  }
+  return null;
+}
+
+module.exports = { getUnitOccupancy, isFullyBooked, pickAvailableUnit, rangesOverlap };

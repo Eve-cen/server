@@ -20,7 +20,7 @@ const rangesOverlap = (aStart, aEnd, bStart, bEnd) =>
 router.get("/:id/availability", auth, async (req, res) => {
   try {
     const property = await Property.findById(req.params.id).select(
-      "title availability customAvailability blockedDates icalUrl host"
+      "title availability customAvailability blockedDates icalUrl host unitsCount"
     );
 
     if (!property)
@@ -36,6 +36,7 @@ router.get("/:id/availability", auth, async (req, res) => {
         start: b.start.toISOString().split("T")[0],
         end: b.end.toISOString().split("T")[0],
         reason: b.reason,
+        unitIndex: b.unitIndex ?? null,
       }));
 
     const bookedDates = property.blockedDates
@@ -45,6 +46,7 @@ router.get("/:id/availability", auth, async (req, res) => {
         start: b.start.toISOString().split("T")[0],
         end: b.end.toISOString().split("T")[0],
         bookingId: b.bookingId,
+        unitIndex: b.unitIndex ?? null,
       }));
 
     res.json({
@@ -53,6 +55,7 @@ router.get("/:id/availability", auth, async (req, res) => {
       availability: property.availability,
       customAvailability: property.customAvailability,
       icalUrl: property.icalUrl,
+      unitsCount: property.unitsCount || 1,
       blockedDates,
       bookedDates,
     });
@@ -97,7 +100,7 @@ router.post("/:id/block", auth, async (req, res) => {
     if (property.host.toString() !== req.user.id.toString())
       return res.status(403).json({ message: "Not authorised" });
 
-    const { start, end, reason = "manual" } = req.body;
+    const { start, end, reason = "manual", unitIndex = null } = req.body;
     if (!start || !end)
       return res.status(400).json({ message: "start and end are required" });
 
@@ -106,23 +109,22 @@ router.post("/:id/block", auth, async (req, res) => {
     if (startDate > endDate)
       return res.status(400).json({ message: "start must be before end" });
 
-    // Reject if range overlaps an existing booked date
-    const conflict = property.blockedDates.find(
-      (b) =>
-        b.reason === "booked" &&
-        rangesOverlap(
-          startDate,
-          endDate,
-          toDateOnly(b.start),
-          toDateOnly(b.end)
-        )
-    );
+    // Reject only if the SAME unit (or "all", when unitIndex is null) is
+    // already occupied by an existing booking -- a listing with several
+    // identical units can have one blocked for maintenance while the
+    // others stay bookable.
+    const conflict = property.blockedDates.find((b) => {
+      if (b.reason !== "booked") return false;
+      if (!rangesOverlap(startDate, endDate, toDateOnly(b.start), toDateOnly(b.end))) return false;
+      if (unitIndex == null || b.unitIndex == null) return true; // "all" always conflicts with any booking
+      return b.unitIndex === unitIndex;
+    });
     if (conflict)
       return res
         .status(409)
         .json({ message: "Range overlaps an existing booking" });
 
-    property.blockedDates.push({ start: startDate, end: endDate, reason });
+    property.blockedDates.push({ start: startDate, end: endDate, reason, unitIndex });
     await property.save();
 
     const added = property.blockedDates[property.blockedDates.length - 1];
@@ -131,6 +133,7 @@ router.post("/:id/block", auth, async (req, res) => {
       start: added.start.toISOString().split("T")[0],
       end: added.end.toISOString().split("T")[0],
       reason: added.reason,
+      unitIndex: added.unitIndex ?? null,
     });
   } catch (err) {
     res.status(500).json({ message: err.message });

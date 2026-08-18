@@ -15,6 +15,11 @@ const bookingSchema = new mongoose.Schema(
     host: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     checkIn: { type: Date, required: true },
     checkOut: { type: Date, required: true },
+    // Which of the property's identical bookable units (see
+    // Property.unitsCount) this booking occupies -- assigned at creation
+    // time by utils/unitAvailability.js. Not to be confused with
+    // totalUnits below, which counts pricing periods, not physical units.
+    unitIndex: { type: Number, default: null },
     guests: { type: Number, default: 1 },
     totalPrice: { type: Number, required: true },
     totalNights: Number,
