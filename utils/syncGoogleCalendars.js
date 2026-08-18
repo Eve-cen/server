@@ -10,7 +10,11 @@ const googleCalendar = require("./googleCalendar");
 // externalEventId with "google:" so this job only ever touches blocks it
 // created itself, never iCal-sourced ones on the same listing.
 module.exports = function setupGoogleCalendarSync() {
-  cron.schedule("*/30 * * * *", async () => {
+  // Staggered against the other 4 external-calendar sync crons (Outlook,
+  // Apple, Cal.com, Calendly) so they don't all fire at the same instant --
+  // 5 concurrent syncs hitting external APIs + DB writes at once was a real
+  // memory-pressure spike (server OOM'd right after one such batch).
+  cron.schedule("0,30 * * * *", async () => {
     console.log("[Google Calendar Sync] Starting pull sync...");
     try {
       const hosts = await User.find({ "googleCalendar.connected": true }).select("googleCalendar");

@@ -7,7 +7,9 @@ const outlookCalendar = require("./outlookCalendar");
 // Blocks are tagged "outlook:" instead of "google:" so the two jobs (plus the
 // per-listing iCal sync) never stomp on each other's blocks for the same listing.
 module.exports = function setupOutlookCalendarSync() {
-  cron.schedule("*/30 * * * *", async () => {
+  // Staggered against the other 4 external-calendar sync crons -- see
+  // syncGoogleCalendars.js for why.
+  cron.schedule("2,32 * * * *", async () => {
     console.log("[Outlook Sync] Starting pull sync...");
     try {
       const hosts = await User.find({ "outlookCalendar.connected": true }).select("outlookCalendar");

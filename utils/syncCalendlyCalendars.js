@@ -7,7 +7,9 @@ const calendlyCalendar = require("./calendlyCalendar");
 // "calendly:" so this job never stomps on Google/Outlook/Cal.com/iCal blocks
 // for the same listing.
 module.exports = function setupCalendlyCalendarSync() {
-  cron.schedule("*/30 * * * *", async () => {
+  // Staggered against the other 4 external-calendar sync crons -- see
+  // syncGoogleCalendars.js for why.
+  cron.schedule("8,38 * * * *", async () => {
     console.log("[Calendly Sync] Starting pull sync...");
     try {
       const hosts = await User.find({ "calendly.connected": true }).select("calendly");

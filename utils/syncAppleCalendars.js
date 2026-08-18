@@ -7,7 +7,9 @@ const appleCalendar = require("./appleCalendar");
 // Blocks are tagged "apple:" so this job never stomps on Google/Outlook/Cal.com/
 // Calendly/iCal blocks for the same listing.
 module.exports = function setupAppleCalendarSync() {
-  cron.schedule("*/30 * * * *", async () => {
+  // Staggered against the other 4 external-calendar sync crons -- see
+  // syncGoogleCalendars.js for why.
+  cron.schedule("4,34 * * * *", async () => {
     console.log("[Apple Calendar Sync] Starting pull sync...");
     try {
       const hosts = await User.find({ "apple.connected": true }).select("apple");

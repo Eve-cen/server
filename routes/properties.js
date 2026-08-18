@@ -80,12 +80,35 @@ const cleanupTempFiles = (files) => {
 // string per photo (no schema change) while R2 actually holds all 4 sizes.
 const IMAGE_WIDTHS = [480, 800, 1200, 1600];
 
+// Runs async work over `items` with at most `limit` in flight at once,
+// instead of firing everything concurrently -- used below to cap how many
+// sharp image conversions run at the same time.
+const mapWithConcurrency = async (items, limit, fn) => {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const worker = async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex++;
+      results[index] = await fn(items[index], index);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+};
+
 // Shared by listing photos AND non-image documents (CQC compliance docs,
 // lease PDFs) uploaded through the same form fields -- only actual raster
 // images get re-encoded to WebP variants here, everything else uploads
 // unchanged.
+//
+// Each image is re-encoded into 4 WebP width variants (see IMAGE_WIDTHS),
+// so an unbounded Promise.all over `files` here means N uploaded photos
+// fire up to N*4 concurrent sharp operations -- a host uploading a full
+// batch of listing photos (up to 45 allowed) could spike to 180 concurrent
+// image conversions with nothing throttling it. Capped at 3 files
+// processing at once to bound peak memory regardless of batch size.
 const uploadFilesToR2 = async (files) => {
-  const uploadPromises = files.map(async (file) => {
+  return mapWithConcurrency(files, 3, async (file) => {
     if (!file.mimetype.startsWith("image/")) {
       try {
         const result = await uploadToR2(file.path, file.filename, file.mimetype);
@@ -123,7 +146,6 @@ const uploadFilesToR2 = async (files) => {
       return result.location;
     }
   });
-  return await Promise.all(uploadPromises);
 };
 
 const deleteFilesFromR2 = async (imageUrls) => {
