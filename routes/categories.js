@@ -54,6 +54,7 @@ router.get("/with-counts", async (req, res) => {
         return {
           _id: cat._id,
           name: cat.name,
+          slug: cat.slug,
           description: cat.description,
           image: cat.image,
           subcategories: cat.subcategories,
@@ -83,9 +84,15 @@ router.get("/:id", async (req, res) => {
       return res.status(404).json({ error: "Category not found" });
     }
 
-    // Find properties that belong to this category
-    const properties = await Property.find({ category: category._id })
-      .populate("host", "name email") // Optional: populate host info
+    // Find properties that belong to this category -- matches either the
+    // singular category field or the categories array (a property can be
+    // tagged into more than one), and excludes unpublished listings, same
+    // as the /with-counts listing-count query above.
+    const properties = await Property.find({
+      $or: [{ category: category._id }, { categories: category._id }],
+      isActive: true,
+    })
+      .populate("host", "firstName lastName displayName profileImage")
       .select("-__v"); // Exclude extra fields like __v
 
     res.json({ category, properties });
