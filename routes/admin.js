@@ -7,6 +7,7 @@ const User = require("../models/User");
 const Booking = require("../models/Booking");
 const Property = require("../models/Property");
 const Report = require("../models/Report");
+const SupportTicket = require("../models/SupportTicket");
 const { geocodeAddress } = require("../utils/geocode");
 const Payment = require("../models/Payment");
 const Review = require("../models/Review");
@@ -20,6 +21,7 @@ const SupportAccessLog = require("../models/SupportAccessLog");
 const SupportAccessRequest = require("../models/SupportAccessRequest");
 const { generateInvoicePDF } = require("../utils/generateInvoice");
 const sendEmail = require("../utils/sendEmail");
+const createNotification = require("../utils/notify");
 const { client: redisClient } = require("../utils/redisClient");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const router = express.Router();
@@ -117,7 +119,7 @@ router.use(adminAuth);
 // Tiered access on top of adminAuth — full_admin always passes every gate.
 // /stats and /overview-analytics are intentionally left ungated (every tier
 // sees the dashboard home). Team management stays full_admin-only below.
-router.use(["/users", "/verifications", "/reports", "/properties", "/bookings"], requireAdminRole("support"));
+router.use(["/users", "/verifications", "/reports", "/properties", "/bookings", "/support-tickets"], requireAdminRole("support"));
 router.use(["/payments", "/payouts", "/invoices", "/commission"], requireAdminRole("finance"));
 router.use(["/markets", "/categories", "/broadcast"], requireAdminRole("content"));
 router.use(["/team", "/settings"], requireAdminRole());
@@ -595,6 +597,66 @@ router.patch("/reports/:id", async (req, res) => {
   );
   if (!report) return res.status(404).json({ error: "Report not found" });
   res.json(report);
+});
+
+// ─── Support tickets ────────────────────────────────────────────────────────
+// GET /support-tickets — all tickets (not scoped to one user), paginated + filtered.
+// Sort is lastMessageAt desc with priority used only as a filter, not a sort
+// key: Mongo sorts strings lexicographically, so sorting directly by the
+// `priority` enum string wouldn't order low/normal/high/urgent correctly. A
+// dedicated numeric sort-order field would fix that but is unneeded scope for
+// this pass, so priority ordering is left to the `priority` filter param instead.
+router.get("/support-tickets", async (req, res) => {
+  const { status, category, priority, assignedToMe, page = 1, limit = 20 } = req.query;
+  const filter = {};
+  if (status) filter.status = status;
+  if (category) filter.category = category;
+  if (priority) filter.priority = priority;
+  if (assignedToMe === "true") filter.assignedAdmin = req.user.id;
+
+  const skip = (parseInt(page) - 1) * parseInt(limit);
+  const [tickets, total] = await Promise.all([
+    SupportTicket.find(filter)
+      .populate("user", "displayName firstName lastName email")
+      .populate("assignedAdmin", "displayName firstName lastName")
+      .sort({ lastMessageAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit)),
+    SupportTicket.countDocuments(filter),
+  ]);
+
+  res.json({ tickets, total, page: parseInt(page), pages: Math.ceil(total / parseInt(limit)) });
+});
+
+// PATCH /support-tickets/:id — update status/priority/assignedAdmin.
+router.patch("/support-tickets/:id", async (req, res) => {
+  const { status, priority, assignedAdmin } = req.body;
+  const update = {};
+  if (status !== undefined) update.status = status;
+  if (priority !== undefined) update.priority = priority;
+  if (assignedAdmin !== undefined) update.assignedAdmin = assignedAdmin;
+  if (status === "resolved") {
+    update.resolvedAt = new Date();
+    update.resolvedBy = req.user.id;
+  }
+
+  const ticket = await SupportTicket.findByIdAndUpdate(req.params.id, update, { new: true });
+  if (!ticket) return res.status(404).json({ error: "Ticket not found" });
+
+  if (status !== undefined) {
+    const io = req.app.get("io");
+    io?.to(`ticket_${ticket._id}`).emit("ticket_status_changed", { status: ticket.status });
+    await createNotification(io, {
+      userId: ticket.user,
+      type: "ticket_status_changed",
+      title: `Ticket ${ticket.ticketNumber} updated`,
+      body: `Status changed to ${ticket.status}`,
+      link: `/support/tickets/${ticket._id}`,
+      meta: { ticketId: ticket._id },
+    }).catch((err) => console.error("Failed to notify ticket status change:", err.message));
+  }
+
+  res.json(ticket);
 });
 
 // ─── Properties ───────────────────────────────────────────────────────────────

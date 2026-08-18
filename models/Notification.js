@@ -4,7 +4,7 @@ const notificationSchema = new mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   type: {
     type: String,
-    enum: ["booking_request", "booking_confirmed", "booking_declined", "booking_cancelled", "payment_received", "new_message", "new_review", "payout_sent", "verification_update", "admin_message"],
+    enum: ["booking_request", "booking_confirmed", "booking_declined", "booking_cancelled", "payment_received", "new_message", "new_review", "payout_sent", "verification_update", "admin_message", "ticket_created", "ticket_reply", "ticket_status_changed"],
     required: true,
   },
   title: { type: String, required: true },

@@ -26,6 +26,8 @@ const http = require("http");
 const socketIo = require("socket.io");
 const Message = require("./models/Message");
 const Conversation = require("./models/Conversation");
+const SupportTicket = require("./models/SupportTicket");
+const User = require("./models/User");
 const setupEscrowRelease = require("./utils/releaseEscrow");
 const setupScheduledBroadcasts = require("./utils/sendScheduledBroadcasts");
 const setupBookingExpiry = require("./utils/expirePendingBookings");
@@ -109,6 +111,26 @@ io.on("connection", (socket) => {
     socket.to(conversationId).emit("stopTyping", {
       userId: socket.user.id,
     });
+  });
+
+  // Support ticket real-time chat — siblings of joinConversation/typing above,
+  // rooms are scoped to `ticket_${ticketId}` so only the ticket's owner or an
+  // admin can join and receive live replies.
+  socket.on("joinTicket", async (ticketId) => {
+    try {
+      const ticket = await SupportTicket.findById(ticketId).select("user");
+      if (!ticket) return;
+      const requester = await User.findById(socket.user.id).select("isAdmin");
+      if (ticket.user.toString() === socket.user.id || requester?.isAdmin) {
+        socket.join(`ticket_${ticketId}`);
+      }
+    } catch (err) {
+      console.error("joinTicket error:", err.message);
+    }
+  });
+
+  socket.on("ticket_typing", ({ ticketId }) => {
+    socket.to(`ticket_${ticketId}`).emit("ticket_typing", { userId: socket.user.id });
   });
 
   socket.on("sendMessage", async ({ conversationId, text }) => {
@@ -321,6 +343,7 @@ app.use("/api/admin", require("./routes/admin"));
 app.use("/api/calendar", require("./routes/calendarSync"));
 app.use("/api/host-calendar", require("./routes/hostCalendar"));
 app.use("/api/reports", require("./routes/reports"));
+app.use("/api/support", require("./routes/support"));
 app.use("/api/support-access", require("./routes/supportAccess"));
 app.use("/uploads", express.static("uploads"));
 app.use("/api/blog", require("./routes/blog"));
@@ -346,6 +369,16 @@ app.get("/sitemap.xml", async (req, res) => {
       { loc: `${baseUrl}/search`, priority: "0.9", changefreq: "daily" },
       { loc: `${baseUrl}/about`, priority: "0.6", changefreq: "monthly" },
       { loc: `${baseUrl}/contact`, priority: "0.6", changefreq: "monthly" },
+      { loc: `${baseUrl}/faq`, priority: "0.6", changefreq: "monthly" },
+      { loc: `${baseUrl}/privacy`, priority: "0.6", changefreq: "monthly" },
+      { loc: `${baseUrl}/terms-and-conditions`, priority: "0.6", changefreq: "monthly" },
+      { loc: `${baseUrl}/cancellation-options`, priority: "0.6", changefreq: "monthly" },
+      { loc: `${baseUrl}/careers`, priority: "0.6", changefreq: "monthly" },
+      { loc: `${baseUrl}/press`, priority: "0.6", changefreq: "monthly" },
+      { loc: `${baseUrl}/partners`, priority: "0.6", changefreq: "monthly" },
+      { loc: `${baseUrl}/safety`, priority: "0.6", changefreq: "monthly" },
+      { loc: `${baseUrl}/accessibility`, priority: "0.6", changefreq: "monthly" },
+      { loc: `${baseUrl}/help-center`, priority: "0.6", changefreq: "monthly" },
     ];
 
     const propertyUrls = properties.map((p) => ({
