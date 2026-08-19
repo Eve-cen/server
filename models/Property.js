@@ -20,6 +20,11 @@ const propertySchema = new mongoose.Schema(
       address: { type: String, required: true },
       city: { type: String, required: true },
       country: { type: String, required: true },
+      // Optional, host-fillable -- powers the /:subcategorySlug/:locationSlug
+      // service+location landing pages. Left blank on existing listings
+      // (no reliable way to infer it from address/city text), so those
+      // pages start sparse until hosts fill this in.
+      neighborhood: { type: String, default: "" },
     },
     coordinates: {
       latitude: Number,

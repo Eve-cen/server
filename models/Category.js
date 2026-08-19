@@ -5,6 +5,10 @@ const subCategorySchema = new mongoose.Schema(
     name: { type: String, required: true },
     description: { type: String, required: true },
     image: { type: String, required: true }, // <--- MAKE SURE THIS LINE EXISTS
+    // URL-friendly identifier for /:subcategorySlug/:locationSlug service+
+    // location landing pages -- same slugify pattern as Category.slug above.
+    // backfillSubcategorySlugs.js fills existing rows.
+    slug: { type: String, trim: true },
   },
   { timestamps: true }
 );

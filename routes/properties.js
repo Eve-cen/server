@@ -17,7 +17,7 @@ const { getUnitOccupancy, isFullyBooked } = require("../utils/unitAvailability")
 const sendEmail = require("../utils/sendEmail");
 const { geocodeAddress } = require("../utils/geocode");
 const { client } = require("../utils/redisClient");
-const { generateUniqueSlug } = require("../utils/slugify");
+const { generateUniqueSlug, generateSlug } = require("../utils/slugify");
 
 const router = express.Router();
 
@@ -681,6 +681,60 @@ router.get("/cities", async (req, res) => {
     res.json({ success: true, countries });
   } catch (err) {
     console.error("Error fetching city counts:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Same shape as /cities above but grouped by the optional, host-fillable
+// location.neighborhood field instead -- powers the location half of the
+// /:subcategorySlug/:locationSlug landing pages. Empty values are skipped
+// since most existing listings don't have this filled in yet.
+router.get("/neighborhoods", async (req, res) => {
+  try {
+    const rows = await Property.aggregate([
+      { $match: { isActive: true, "location.neighborhood": { $nin: [null, ""] } } },
+      { $group: { _id: "$location.neighborhood", count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+    ]);
+    const neighborhoods = rows.map((row) => ({
+      name: row._id,
+      slug: generateSlug(row._id),
+      count: row.count,
+    }));
+    res.json({ success: true, neighborhoods });
+  } catch (err) {
+    console.error("Error fetching neighborhood counts:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Listings matching a specific service (subcategory) in a specific area --
+// powers the /:subcategorySlug/:locationSlug landing pages. Matches
+// location.neighborhood by comparing its slugified form against
+// locationSlug, since neighborhood is stored as free text (e.g. "Islington")
+// but the URL segment is slugified ("islington").
+router.get("/by-service-location", async (req, res) => {
+  try {
+    const { subcategory, locationSlug } = req.query;
+    if (!subcategory || !locationSlug) {
+      return res.status(400).json({ error: "subcategory and locationSlug are required" });
+    }
+
+    const candidates = await Property.find({
+      $or: [{ subcategory }, { subcategories: subcategory }],
+      isActive: true,
+    })
+      .populate("host", "firstName lastName displayName profileImage")
+      .populate("category", "name slug")
+      .select("-__v");
+
+    const properties = candidates.filter(
+      (p) => p.location?.neighborhood && generateSlug(p.location.neighborhood) === locationSlug
+    );
+
+    res.json({ success: true, properties });
+  } catch (err) {
+    console.error("Error fetching service+location listings:", err);
     res.status(500).json({ error: "Server error" });
   }
 });

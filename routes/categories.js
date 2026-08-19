@@ -104,4 +104,22 @@ router.get("/:id", async (req, res) => {
   }
 });
 
+// Finds the parent category of a subcategory by the subcategory's own slug
+// (e.g. "nail-studio") -- powers the /:subcategorySlug/:locationSlug
+// service+location landing pages, which need the subcategory's name/image
+// plus its parent category for breadcrumbs/fallback imagery.
+router.get("/subcategory/:slug", async (req, res) => {
+  try {
+    const category = await Category.findOne({ "subcategories.slug": req.params.slug });
+    if (!category) {
+      return res.status(404).json({ error: "Service not found" });
+    }
+    const subcategory = category.subcategories.find((sub) => sub.slug === req.params.slug);
+    res.json({ category, subcategory });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 module.exports = router;
