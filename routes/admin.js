@@ -21,6 +21,7 @@ const SupportAccessLog = require("../models/SupportAccessLog");
 const SupportAccessRequest = require("../models/SupportAccessRequest");
 const { generateInvoicePDF } = require("../utils/generateInvoice");
 const sendEmail = require("../utils/sendEmail");
+const sendSMS = require("../utils/sendSMS");
 const createNotification = require("../utils/notify");
 const { client: redisClient } = require("../utils/redisClient");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
@@ -846,6 +847,15 @@ router.post("/payments/:bookingId/release", async (req, res) => {
     booking.escrowReleased = true;
     booking.stripeTransferId = transfer.id;
     await booking.save();
+
+    if (booking.host.phoneNumber && booking.host.isPhoneVerified) {
+      sendSMS({
+        to: booking.host.phoneNumber,
+        body: `VenCome: You've been paid £${(amountToHost / 100).toFixed(2)} for booking ${booking._id.toString().slice(-8).toUpperCase()}.`,
+      }).catch((err) => {
+        if (err.code !== "SMS_NOT_CONFIGURED") console.error("Admin-release payout SMS to host failed:", err.message);
+      });
+    }
 
     res.json({ success: true, transferId: transfer.id });
   } catch (err) {

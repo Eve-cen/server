@@ -6,6 +6,7 @@ const Payment = require("../models/Payment");
 const createNotification = require("../utils/notify");
 const auth = require("../middleware/auth");
 const sendEmail = require("../utils/sendEmail");
+const sendSMS = require("../utils/sendSMS");
 const User = require("../models/User");
 const router = express.Router();
 const multer = require("multer");
@@ -633,6 +634,17 @@ router.post(
         `,
       });
 
+      // Instant-book only -- a "pending" booking's guest SMS fires later,
+      // when the host actually approves it (see PUT /:id/status below).
+      if (booking.status === "confirmed" && user.phoneNumber && user.isPhoneVerified) {
+        sendSMS({
+          to: user.phoneNumber,
+          body: `VenCome: Your booking at "${property.title}" is confirmed! Check-in ${checkInDate.toLocaleDateString()}.`,
+        }).catch((err) => {
+          if (err.code !== "SMS_NOT_CONFIGURED") console.error("Booking-confirmed SMS to guest failed:", err.message);
+        });
+      }
+
       const hostUser = await User.findById(property.host._id);
 
       if (hostUser) {
@@ -715,6 +727,18 @@ router.post(
             </div>
           `,
         });
+
+        if (hostUser.phoneNumber && hostUser.isPhoneVerified) {
+          sendSMS({
+            to: hostUser.phoneNumber,
+            body:
+              booking.status === "confirmed"
+                ? `VenCome: ${guestDisplayName} just instantly booked "${property.title}". Check your dashboard for details.`
+                : `VenCome: ${guestDisplayName} requested to book "${property.title}". Log in to approve or decline.`,
+          }).catch((err) => {
+            if (err.code !== "SMS_NOT_CONFIGURED") console.error("Booking-request SMS to host failed:", err.message);
+          });
+        }
       }
 
       return res.status(201).json(booking);
@@ -955,6 +979,15 @@ router.put("/:id/status", auth, async (req, res) => {
               </div>
             `,
           });
+
+          if (guestUser.phoneNumber && guestUser.isPhoneVerified) {
+            sendSMS({
+              to: guestUser.phoneNumber,
+              body: `VenCome: Your booking at "${prop?.title || "your space"}" is confirmed! Check-in ${new Date(booking.checkIn).toLocaleDateString()}.`,
+            }).catch((err) => {
+              if (err.code !== "SMS_NOT_CONFIGURED") console.error("Booking-approved SMS to guest failed:", err.message);
+            });
+          }
         } else if (status === "declined") {
           sendEmail({
             to: guestUser.email,

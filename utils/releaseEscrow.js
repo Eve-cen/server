@@ -2,6 +2,7 @@ const cron = require("node-cron");
 const Booking = require("../models/Booking");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const User = require("../models/User");
+const sendSMS = require("./sendSMS");
 
 module.exports = function setupEscrowRelease() {
   cron.schedule("0 * * * *", async () => {
@@ -43,6 +44,15 @@ module.exports = function setupEscrowRelease() {
           await booking.save();
 
           console.log(`[Escrow] Released $${amountToHost / 100} to host ${host._id} for booking ${booking._id}`);
+
+          if (host.phoneNumber && host.isPhoneVerified) {
+            sendSMS({
+              to: host.phoneNumber,
+              body: `VenCome: You've been paid £${(amountToHost / 100).toFixed(2)} for booking ${booking._id.toString().slice(-8).toUpperCase()}.`,
+            }).catch((err) => {
+              if (err.code !== "SMS_NOT_CONFIGURED") console.error("Payout SMS to host failed:", err.message);
+            });
+          }
         } catch (transferErr) {
           console.error(`[Escrow] Transfer failed for booking ${booking._id}:`, transferErr.message);
         }
