@@ -103,6 +103,14 @@ const bookingSchema = new mongoose.Schema(
       default: null,
       description: "Timestamp when guest signed the lease",
     },
+    // Real e-signature capture for the lease-signing flow -- upgrades the
+    // plain "signed" checkbox above into an actual drawn/typed signature
+    // plus an audit trail (IP + hash of the exact document bytes signed).
+    signatureType: { type: String, enum: ["drawn", "typed"] },
+    signatureDataUrl: String,
+    signatureTypedName: String,
+    signedIp: String,
+    leaseDocumentHash: String,
     stripeTransferId: String,
     disputeFrozen: { type: Boolean, default: false },
     disputeId: String,

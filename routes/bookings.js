@@ -10,7 +10,7 @@ const User = require("../models/User");
 const router = express.Router();
 const multer = require("multer");
 const fs = require("fs");
-const { randomUUID } = require("crypto");
+const { randomUUID, createHash } = require("crypto");
 const uploadToR2 = require("../utils/uploadService");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const { getUnitOccupancy, isFullyBooked, pickAvailableUnit } = require("../utils/unitAvailability");
@@ -1346,6 +1346,21 @@ router.put("/sign-lease/:id", auth, async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
+    const { signatureType, signatureDataUrl, typedName } = req.body;
+
+    // ── Validate signature payload ──
+    if (signatureType !== "drawn" && signatureType !== "typed") {
+      return res.status(400).json({
+        error: "signatureType must be 'drawn' or 'typed'",
+      });
+    }
+    if (signatureType === "drawn" && !signatureDataUrl) {
+      return res.status(400).json({ error: "A drawn signature is required" });
+    }
+    const trimmedTypedName = typeof typedName === "string" ? typedName.trim() : "";
+    if (signatureType === "typed" && (!trimmedTypedName || trimmedTypedName.length > 200)) {
+      return res.status(400).json({ error: "A typed signature name is required" });
+    }
 
     // ── Fetch booking ──
     const booking = await Booking.findById(id);
@@ -1367,8 +1382,28 @@ router.put("/sign-lease/:id", auth, async (req, res) => {
       });
     }
 
+    // ── Hash the lease document's actual bytes at signing time, so there's
+    // a tamper-evident record of exactly what was agreed to (the lease URL
+    // alone doesn't prove the file wasn't swapped afterwards). Never blocks
+    // signing if this fails -- the signature itself is still captured.
+    let leaseDocumentHash = null;
+    try {
+      const leaseResponse = await fetch(booking.leaseUrl);
+      if (leaseResponse.ok) {
+        const leaseBuffer = Buffer.from(await leaseResponse.arrayBuffer());
+        leaseDocumentHash = createHash("sha256").update(leaseBuffer).digest("hex");
+      }
+    } catch (hashErr) {
+      console.error(`Failed to hash lease document for booking ${id}:`, hashErr.message);
+    }
+
     // ── Update booking with lease signature ──
     booking.leaseSignedAt = new Date();
+    booking.signatureType = signatureType;
+    booking.signatureDataUrl = signatureType === "drawn" ? signatureDataUrl : undefined;
+    booking.signatureTypedName = signatureType === "typed" ? trimmedTypedName : undefined;
+    booking.signedIp = req.ip;
+    booking.leaseDocumentHash = leaseDocumentHash;
     const updatedBooking = await booking.save();
 
     // ── Optional: Send email notification to host ──
@@ -1430,6 +1465,8 @@ router.put("/sign-lease/:id", auth, async (req, res) => {
       success: true,
       message: "Lease agreement signed successfully",
       leaseSignedAt: updatedBooking.leaseSignedAt,
+      signatureType: updatedBooking.signatureType,
+      signedIp: updatedBooking.signedIp,
     });
   } catch (err) {
     console.error("Error signing lease:", err);
@@ -1518,6 +1555,46 @@ router.delete("/:id/lease", auth, async (req, res) => {
       error: "Server error",
       details: err.message,
     });
+  }
+});
+
+// Guest-facing visibility into Property.unitsCount (identical bookable
+// units, e.g. "5 identical chairs" on one listing) for a specific date
+// range -- reuses the exact same getUnitOccupancy logic that POST /bookings
+// uses to actually assign/reject bookings, so what the guest sees here is
+// guaranteed consistent with what the booking endpoint will do. Only
+// meaningful when unitsCount > 1, but returns correct numbers regardless.
+router.get("/property/:propertyId/unit-availability", async (req, res) => {
+  try {
+    const { checkIn, checkOut } = req.query;
+    const checkInDate = new Date(checkIn);
+    const checkOutDate = new Date(checkOut);
+    if (!checkIn || !checkOut || isNaN(checkInDate) || isNaN(checkOutDate)) {
+      return res.status(404).json({ error: "Property not found" });
+    }
+
+    // Same slug-or-ObjectId resolution as GET /property/:propertyId/booked-dates
+    // just below -- property pages are accessed by slug, not just raw
+    // ObjectId, so both need to resolve to the real _id.
+    const isObjectId = /^[0-9a-fA-F]{24}$/.test(req.params.propertyId);
+    const property = isObjectId
+      ? await Property.findById(req.params.propertyId).select("_id unitsCount blockedDates")
+      : await Property.findOne({ slug: req.params.propertyId }).select("_id unitsCount blockedDates");
+    if (!property) {
+      return res.status(404).json({ error: "Property not found" });
+    }
+
+    const unitsCount = property.unitsCount || 1;
+    const occupancy = await getUnitOccupancy(property, checkInDate, checkOutDate);
+    const fullyBooked = isFullyBooked(occupancy, unitsCount);
+    const unitsAvailable = occupancy.blockedAll
+      ? 0
+      : Math.max(0, unitsCount - occupancy.takenUnits.size);
+
+    res.json({ unitsCount, unitsAvailable, isFullyBooked: fullyBooked });
+  } catch (err) {
+    console.error("Error fetching unit availability:", err);
+    res.status(500).json({ error: "Server error" });
   }
 });
 
