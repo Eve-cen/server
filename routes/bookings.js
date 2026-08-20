@@ -1624,7 +1624,18 @@ router.get("/property/:propertyId/unit-availability", async (req, res) => {
       ? 0
       : Math.max(0, unitsCount - occupancy.takenUnits.size);
 
-    res.json({ unitsCount, unitsAvailable, isFullyBooked: fullyBooked });
+    res.json({
+      unitsCount,
+      unitsAvailable,
+      isFullyBooked: fullyBooked,
+      // Specific unit numbers occupied for this exact date range, so the
+      // client can render per-unit state (e.g. gray out unit 2 specifically)
+      // instead of just a count. blockedAll means every unit is closed
+      // regardless of individual unitIndex, so report all of them taken.
+      takenUnits: occupancy.blockedAll
+        ? Array.from({ length: unitsCount }, (_, i) => i + 1)
+        : Array.from(occupancy.takenUnits),
+    });
   } catch (err) {
     console.error("Error fetching unit availability:", err);
     res.status(500).json({ error: "Server error" });
