@@ -1524,8 +1524,20 @@ router.delete("/:id/lease", auth, async (req, res) => {
 router.get("/property/:propertyId/booked-dates", async (req, res) => {
   try {
     const Booking = require("../models/Booking");
+    // Property pages are now accessed by slug (the canonical URL), not just
+    // raw ObjectId -- resolve either one to the real _id before querying,
+    // same pattern as routes/categories.js. Without this, a slug here threw
+    // a Mongoose CastError on every request, flattened into a silent 500.
+    const isObjectId = /^[0-9a-fA-F]{24}$/.test(req.params.propertyId);
+    const property = isObjectId
+      ? await Property.findById(req.params.propertyId).select("_id")
+      : await Property.findOne({ slug: req.params.propertyId }).select("_id");
+    if (!property) {
+      return res.json({ success: true, bookedDates: [] });
+    }
+
     const bookings = await Booking.find({
-      property: req.params.propertyId,
+      property: property._id,
       status: { $in: ["confirmed", "pending"] },
     }).select("checkIn checkOut");
 
