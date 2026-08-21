@@ -752,7 +752,11 @@ router.post("/properties/backfill-coordinates", async (req, res) => {
 // and subcategory, which power the /:subcategorySlug/:locationSlug SEO
 // pages and are otherwise only ever set by the host themselves.
 router.patch("/properties/:id", async (req, res) => {
-  const { isActive, rejectionReason, title, subcategory, address, city, country, neighborhood } = req.body;
+  const {
+    isActive, rejectionReason, title, subcategory, address, city, country, neighborhood,
+    description, whatsIncluded, capacity, unitsCount, pricing, discounts, availability,
+    instantBook, rules, listingTerms,
+  } = req.body;
 
   const update = {};
   if (isActive !== undefined) update.isActive = isActive;
@@ -762,6 +766,31 @@ router.patch("/properties/:id", async (req, res) => {
   if (city !== undefined) update["location.city"] = city.trim();
   if (country !== undefined) update["location.country"] = country.trim();
   if (neighborhood !== undefined) update["location.neighborhood"] = neighborhood.trim();
+  if (description !== undefined) update.description = description;
+  if (whatsIncluded !== undefined) update.whatsIncluded = whatsIncluded;
+  if (capacity !== undefined) update["features.capacity"] = Number(capacity) || 0;
+  if (unitsCount !== undefined) update.unitsCount = Math.max(1, Number(unitsCount) || 1);
+  if (pricing) {
+    for (const tier of ["hourly", "daily", "weekly", "monthly", "annual"]) {
+      if (pricing[tier] !== undefined) update[`pricing.${tier}`] = Number(pricing[tier]) || 0;
+    }
+  }
+  if (discounts) {
+    for (const key of ["newListing", "lastMinute", "weekly", "monthly"]) {
+      if (discounts[key] !== undefined) update[`pricing.discounts.${key}`] = Boolean(discounts[key]);
+    }
+    if (discounts.extendedHours !== undefined) {
+      update["pricing.discounts.extendedHours"] = Math.min(100, Math.max(0, Number(discounts.extendedHours) || 0));
+    }
+  }
+  if (availability) {
+    if (availability.openDays !== undefined) update["availability.openDays"] = availability.openDays;
+    if (availability.openTime !== undefined) update["availability.openTime"] = availability.openTime;
+    if (availability.closeTime !== undefined) update["availability.closeTime"] = availability.closeTime;
+  }
+  if (instantBook !== undefined) update["bookingSettings.instantBook"] = Boolean(instantBook);
+  if (rules !== undefined) update["features.houseRules"] = rules;
+  if (listingTerms !== undefined) update.listingTerms = listingTerms;
 
   const property = await Property.findByIdAndUpdate(req.params.id, update, { new: true })
     .populate("host", "email displayName firstName");
