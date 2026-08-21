@@ -1162,13 +1162,19 @@ router.put(
     }
 
     if (property.host.toString() !== req.user.id) {
-      cleanupTempFiles([
-        ...(req.files?.images || []),
-        ...(req.files?.leaseFile || []),
-      ]);
-      return res.status(403).json({
-        error: "Unauthorized: You are not the host of this property",
-      });
+      // Not the listing's own host -- still allow if the requester is an
+      // admin, so the same EditSpace.jsx page hosts use also works as
+      // admin's full listing editor (reused rather than duplicated).
+      const requestingUser = await User.findById(req.user.id).select("isAdmin");
+      if (!requestingUser?.isAdmin) {
+        cleanupTempFiles([
+          ...(req.files?.images || []),
+          ...(req.files?.leaseFile || []),
+        ]);
+        return res.status(403).json({
+          error: "Unauthorized: You are not the host of this property",
+        });
+      }
     }
 
     // Backfill for listings created before slugs existed -- the slug itself
@@ -1280,6 +1286,7 @@ router.put(
       property.whatsIncluded = req.body.whatsIncluded;
     }
     if (location) property.location = location;
+    if (req.body.subcategory !== undefined) property.subcategory = req.body.subcategory;
     if (coordinates) property.coordinates = coordinates;
 
     // Same fallback as create -- if the property still has no real
