@@ -502,6 +502,46 @@ router.delete("/users/:id", async (req, res) => {
   }
 });
 
+// General account-detail editor for admin -- deliberately scoped to plain
+// identity fields only. Role/permission changes (isAdmin, isHost, ban)
+// already have their own dedicated endpoints above; phoneNumber is
+// excluded on purpose since it's only ever meant to be set through the
+// OTP-verified change flow (see routes/settings.js) -- letting admin set
+// it directly here would create an unverified-looking number with no way
+// to tell it apart from a real verified one.
+router.patch("/users/:id", async (req, res) => {
+  try {
+    const { firstName, lastName, displayName, email } = req.body;
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    if (email && email.trim().toLowerCase() !== user.email) {
+      const normalizedEmail = email.trim().toLowerCase();
+      const duplicate = await User.exists({ email: normalizedEmail, _id: { $ne: user._id } });
+      if (duplicate) return res.status(400).json({ error: "That email is already in use" });
+      user.email = normalizedEmail;
+    }
+    if (firstName !== undefined) user.firstName = firstName.trim();
+    if (lastName !== undefined) user.lastName = lastName.trim();
+    if (displayName !== undefined) user.displayName = displayName.trim();
+
+    await user.save();
+    res.json({
+      success: true,
+      user: {
+        _id: user._id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        displayName: user.displayName,
+        email: user.email,
+      },
+    });
+  } catch (err) {
+    console.error("Admin edit user error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 // ─── Verifications ────────────────────────────────────────────────────────────
 router.get("/verifications", async (req, res) => {
   const users = await User.find({ "businessVerification.status": "under_review" })
@@ -706,9 +746,24 @@ router.post("/properties/backfill-coordinates", async (req, res) => {
   }
 });
 
+// Approve/reject (isActive) is the original purpose of this route; the
+// other fields below were added so admin can also correct or backfill a
+// listing's core details directly -- most importantly location.neighborhood
+// and subcategory, which power the /:subcategorySlug/:locationSlug SEO
+// pages and are otherwise only ever set by the host themselves.
 router.patch("/properties/:id", async (req, res) => {
-  const { isActive, rejectionReason } = req.body;
-  const property = await Property.findByIdAndUpdate(req.params.id, { isActive }, { new: true })
+  const { isActive, rejectionReason, title, subcategory, address, city, country, neighborhood } = req.body;
+
+  const update = {};
+  if (isActive !== undefined) update.isActive = isActive;
+  if (title !== undefined) update.title = title.trim();
+  if (subcategory !== undefined) update.subcategory = subcategory.trim();
+  if (address !== undefined) update["location.address"] = address.trim();
+  if (city !== undefined) update["location.city"] = city.trim();
+  if (country !== undefined) update["location.country"] = country.trim();
+  if (neighborhood !== undefined) update["location.neighborhood"] = neighborhood.trim();
+
+  const property = await Property.findByIdAndUpdate(req.params.id, update, { new: true })
     .populate("host", "email displayName firstName");
   if (!property) return res.status(404).json({ error: "Property not found" });
 
