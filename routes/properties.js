@@ -1151,7 +1151,10 @@ router.put(
   ]),
   async (req, res) => {
   try {
-    const property = await Property.findById(req.params.id);
+    const isObjectId = /^[0-9a-fA-F]{24}$/.test(req.params.id);
+    const property = isObjectId
+      ? await Property.findById(req.params.id)
+      : await Property.findOne({ slug: req.params.id });
 
     if (!property) {
       cleanupTempFiles([
