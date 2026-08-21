@@ -1715,9 +1715,12 @@ router.delete("/:id/images", auth, async (req, res) => {
     if (!property) return res.status(404).json({ error: "Property not found" });
 
     if (property.host.toString() !== req.user.id) {
-      return res.status(403).json({
-        error: "Unauthorized: You are not the host of this property",
-      });
+      const requestingUser = await User.findById(req.user.id).select("isAdmin");
+      if (!requestingUser?.isAdmin) {
+        return res.status(403).json({
+          error: "Unauthorized: You are not the host of this property",
+        });
+      }
     }
 
     const { imageUrls } = req.body;
