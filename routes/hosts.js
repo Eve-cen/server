@@ -86,7 +86,7 @@ router.get("/:hostId", async (req, res) => {
 
     // Fetch host (public fields only)
     const host = await User.findById(hostId).select(
-      "displayName profileImage bio createdAt"
+      "displayName profileImage bio createdAt businessVerified"
     );
     if (!host) return res.status(404).json({ error: "Host not found" });
 

@@ -602,30 +602,33 @@ router.get("/", async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
+    const hostId = req.query.host;
 
     // Homepage's Featured Listings section hits this on every load
     // (GET /properties?limit=8) with no caching -- unlike /search and the
     // single-property route, which both cache for 600s. Same TTL-only
     // pattern here (no active invalidation on write, same as /search).
-    const cacheKey = `properties:page:${page}:limit:${limit}`;
+    const cacheKey = `properties:page:${page}:limit:${limit}${hostId ? `:host:${hostId}` : ""}`;
     const cached = await client.get(cacheKey);
     if (cached) {
       return res.json({ success: true, ...JSON.parse(cached), cached: true });
     }
+
+    const filter = { isActive: true, ...(hostId && { host: hostId }) };
 
     // Missing entirely before -- this is what Homepage.jsx's Featured
     // Listings section calls (GET /properties?limit=8), so an unpublished
     // listing kept showing there (and here generally) even though isActive
     // was correctly set to false by PATCH /:id/status.
     const [properties, total] = await Promise.all([
-      Property.find({ isActive: true })
+      Property.find(filter)
         .populate("host", "firstName lastName displayName email profileImage")
         .populate("category", "name")
         .populate("categories", "name")
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit),
-      Property.countDocuments({ isActive: true }),
+      Property.countDocuments(filter),
     ]);
 
     const responsePayload = {
