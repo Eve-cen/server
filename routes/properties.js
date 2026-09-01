@@ -1073,7 +1073,7 @@ router.get("/:id", async (req, res) => {
       : Property.findOne({ slug: propertyId });
 
     const property = await baseQuery
-      .populate("host", "firstName lastName displayName email profileImage")
+      .populate("host", "firstName lastName displayName email profileImage slug")
       .populate("category", "name")
       .populate("categories", "name")
       .populate({
