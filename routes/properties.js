@@ -12,6 +12,7 @@ const { deleteFromR2 } = require("../utils/uploadService");
 const validatePricing = require("../middleware/validatePricing");
 const User = require("../models/User");
 const Report = require("../models/Report");
+const Draft = require("../models/Draft");
 const makeUserHost = require("../utils/stripeConnect");
 const { getUnitOccupancy, isFullyBooked } = require("../utils/unitAvailability");
 const sendEmail = require("../utils/sendEmail");
@@ -486,6 +487,19 @@ router.post(
       });
 
       const savedProperty = await property.save();
+
+      // Retire the draft this listing was published from -- previously this
+      // only happened via a best-effort DELETE call from the client after
+      // this request returned (CreateSpace.jsx), which could race with the
+      // autosave that created the draft, or fail silently. Doing it here,
+      // atomically with creation, is what stops the hourly draft-reminder
+      // cron in server.js from emailing hosts about listings they already
+      // published.
+      if (req.body.draftId) {
+        await Draft.deleteOne({ _id: req.body.draftId, host: req.user.id }).catch(
+          (err) => console.error("Draft cleanup on publish failed:", err.message)
+        );
+      }
 
       // Notify admins of new listing
       try {
