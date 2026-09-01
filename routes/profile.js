@@ -88,7 +88,8 @@ router.put("/", auth, upload.single("profileImage"), async (req, res) => {
 
     const updatedUser = await user.save();
 
-    res.json(updatedUser);
+    const { password, ...safeUser } = updatedUser.toObject();
+    res.json(safeUser);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
