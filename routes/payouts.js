@@ -151,13 +151,43 @@ router.post("/", auth, blockDuringImpersonation, async (req, res) => {
   }
 
   if (type === "card") {
+    // Attach the card to the host's actual Connect account as a real
+    // external account -- previously this just stored the raw Stripe.js
+    // token as "stripeCardId" and never called Stripe at all, so the card
+    // was never actually a real payout destination. Stripe's own automatic
+    // payout schedule sends funds to whichever external account is marked
+    // default, so no other code (releaseEscrow.js, admin release) needs to
+    // change -- they already fund the connected account's balance via
+    // stripe.transfers.create(); Stripe handles getting it from there to
+    // the default external account, card or bank, on its own.
+    if (!tokenId) {
+      return res.status(400).json({ error: "Missing card token" });
+    }
+    let hostUser;
+    try {
+      hostUser = await makeUserHost(req.user.id);
+    } catch (err) {
+      return res.status(500).json({ error: err.message || "Failed to set up payout account" });
+    }
+
+    let externalAccount;
+    try {
+      externalAccount = await stripe.accounts.createExternalAccount(hostUser.stripeAccountId, {
+        external_account: tokenId,
+        default_for_currency: isDefault,
+      });
+    } catch (err) {
+      console.error("Add card external account error:", err.message);
+      return res.status(400).json({ error: err.message || "Failed to add card" });
+    }
+
     user.payoutMethods.push({
       type: "card",
-      brand: brand?.toLowerCase(),
-      last4,
+      brand: (externalAccount.brand || brand)?.toLowerCase(),
+      last4: externalAccount.last4 || last4,
       clientIp,
-      cardNumber: `************${last4}`,
-      stripeCardId: tokenId,
+      cardNumber: `************${externalAccount.last4 || last4}`,
+      stripeCardId: externalAccount.id,
       isDefault,
     });
   }
@@ -283,6 +313,17 @@ router.delete("/:methodId", auth, blockDuringImpersonation, async (req, res) => 
       return res.status(404).json({ error: "Payout method not found" });
     }
 
+    const method = user.payoutMethods[methodIndex];
+    if (method.type === "card" && method.stripeCardId && user.stripeAccountId) {
+      try {
+        await stripe.accounts.deleteExternalAccount(user.stripeAccountId, method.stripeCardId);
+      } catch (err) {
+        // Already removed on Stripe's side, or account gone -- don't block
+        // deleting the local record over a mismatch that's already moot.
+        console.error("Delete card external account error:", err.message);
+      }
+    }
+
     user.payoutMethods.splice(methodIndex, 1);
     await user.save();
 
@@ -302,6 +343,18 @@ router.patch("/:methodId/default", auth, blockDuringImpersonation, async (req, r
     user.payoutMethods.forEach((method) => {
       method.isDefault = method._id.toString() === req.params.methodId;
     });
+
+    const newDefault = user.payoutMethods.find((m) => m._id.toString() === req.params.methodId);
+    if (newDefault?.type === "card" && newDefault.stripeCardId && user.stripeAccountId) {
+      try {
+        await stripe.accounts.updateExternalAccount(user.stripeAccountId, newDefault.stripeCardId, {
+          default_for_currency: true,
+        });
+      } catch (err) {
+        console.error("Set default card on Stripe error:", err.message);
+        return res.status(400).json({ error: "Couldn't set this as your default payout method on Stripe" });
+      }
+    }
 
     await user.save();
     res.json({ success: true });
