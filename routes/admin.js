@@ -6,6 +6,7 @@ const { adminAuth, requireAdminRole } = require("../middleware/auth");
 const User = require("../models/User");
 const Booking = require("../models/Booking");
 const Property = require("../models/Property");
+const Draft = require("../models/Draft");
 const Report = require("../models/Report");
 const SupportTicket = require("../models/SupportTicket");
 const { geocodeAddress } = require("../utils/geocode");
@@ -120,7 +121,7 @@ router.use(adminAuth);
 // Tiered access on top of adminAuth — full_admin always passes every gate.
 // /stats and /overview-analytics are intentionally left ungated (every tier
 // sees the dashboard home). Team management stays full_admin-only below.
-router.use(["/users", "/verifications", "/reports", "/properties", "/bookings", "/support-tickets"], requireAdminRole("support"));
+router.use(["/users", "/verifications", "/reports", "/properties", "/bookings", "/support-tickets", "/drafts"], requireAdminRole("support"));
 router.use(["/payments", "/payouts", "/invoices", "/commission"], requireAdminRole("finance"));
 router.use(["/markets", "/categories", "/broadcast"], requireAdminRole("content"));
 router.use(["/team", "/settings"], requireAdminRole());
@@ -711,6 +712,31 @@ router.get("/properties", async (req, res) => {
     Property.countDocuments(filter),
   ]);
   res.json({ properties, total, page: parseInt(page), pages: Math.ceil(total / parseInt(limit)) });
+});
+
+// Lists saved-but-unpublished listing drafts across all hosts, oldest
+// first -- these are what the hourly reminder cron (server.js) emails
+// hosts about. A draft that's stuck here despite the host having already
+// published the listing (see the draftId fix in POST /properties) can be
+// removed with DELETE below.
+router.get("/drafts", async (req, res) => {
+  const { page = 1, limit = 20 } = req.query;
+  const skip = (parseInt(page) - 1) * parseInt(limit);
+  const [drafts, total] = await Promise.all([
+    Draft.find({})
+      .populate("host", "firstName lastName email displayName")
+      .sort({ createdAt: 1 })
+      .skip(skip)
+      .limit(parseInt(limit)),
+    Draft.countDocuments({}),
+  ]);
+  res.json({ drafts, total, page: parseInt(page), pages: Math.ceil(total / parseInt(limit)) });
+});
+
+router.delete("/drafts/:id", async (req, res) => {
+  const draft = await Draft.findByIdAndDelete(req.params.id);
+  if (!draft) return res.status(404).json({ error: "Draft not found" });
+  res.json({ success: true });
 });
 
 // One-off fix for listings created before coordinates were reliably
