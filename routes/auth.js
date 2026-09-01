@@ -30,13 +30,21 @@ router.get("/me", auth, async (req, res) => {
 
 // ─── POST /auth/signup ────────────────────────────────────────────────────────
 router.post("/signup", authLimiter, async (req, res) => {
-  const { email, password, isHost, newsletterOptIn } = req.body;
+  const { email, password, isHost, newsletterOptIn, firstName } = req.body;
   if (!email || !password)
     return res.status(400).json({ error: "Email and password are required" });
   if (password.length < 8)
     return res
       .status(400)
       .json({ error: "Password must be at least 8 characters" });
+  // Without a real name, the public-facing display name silently fell back
+  // to the part of the email before the "@" (see PropertyDetails.jsx's
+  // HostSection), which could leak a host's business/salon name they never
+  // intended to make public. The explicit /signup form now requires this
+  // client-side; kept optional here (not a hard 400) because the
+  // passwordless combined /login flow also calls this endpoint to
+  // auto-create an account and doesn't collect a name.
+  const trimmedFirstName = (firstName || "").trim();
 
   try {
     const normalizedEmail = email.toLowerCase().trim();
@@ -50,6 +58,7 @@ router.post("/signup", authLimiter, async (req, res) => {
     const user = new User({
       email: normalizedEmail,
       password: hashedPassword,
+      ...(trimmedFirstName && { firstName: trimmedFirstName, displayName: trimmedFirstName }),
       isVerified: false,
       isHost: !!isHost,
       newsletterOptIn: !!newsletterOptIn,
