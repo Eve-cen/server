@@ -80,7 +80,7 @@ router.put("/", auth, upload.single("profileImage"), async (req, res) => {
 
     user.profileImage = profileImageUrl;
     user.displayName = displayName || user.displayName;
-    user.bio = bio || user.bio;
+    user.bio = bio !== undefined ? bio : user.bio;
     user.firstName = firstName || user.firstName;
     user.lastName = lastName || user.lastName;
     // phoneNumber is intentionally NOT settable here -- see
