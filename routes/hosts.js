@@ -2,6 +2,7 @@ const express = require("express");
 const User = require("../models/User");
 const Property = require("../models/Property");
 const auth = require("../middleware/auth");
+const { generateUniqueSlug } = require("../utils/slugify");
 const router = express.Router();
 
 // ✅ 5-step host onboarding checklist — computed live from real account state,
@@ -84,17 +85,36 @@ router.get("/:hostId", async (req, res) => {
   try {
     const { hostId } = req.params;
 
-    // Fetch host (public fields only)
-    const host = await User.findById(hostId).select(
-      "displayName profileImage bio createdAt businessVerified"
-    );
+    // The URL param may be either a slug (e.g. /host/jayden-benson) or a raw
+    // ObjectId (older/shared links) -- same dual-lookup Property.slug uses.
+    const isObjectId = /^[0-9a-fA-F]{24}$/.test(hostId);
+    const selectFields =
+      "firstName lastName displayName profileImage bio createdAt businessVerified slug";
+    const host = isObjectId
+      ? await User.findById(hostId).select(selectFields)
+      : await User.findOne({ slug: hostId }).select(selectFields);
     if (!host) return res.status(404).json({ error: "Host not found" });
 
+    // Self-heal accounts created before slugs existed, same lazy backfill
+    // Property.slug relies on.
+    if (!host.slug) {
+      const name =
+        host.displayName ||
+        `${host.firstName || ""} ${host.lastName || ""}`.trim() ||
+        "host";
+      const slug = await generateUniqueSlug(User, name, "slug");
+      // updateOne (not host.save()) -- this doc was fetched with a partial
+      // .select() that excludes password, and .save() re-validates every
+      // schema path, so it would fail User's required-password validator.
+      await User.updateOne({ _id: host._id }, { slug });
+      host.slug = slug;
+    }
+
     // Count total listings
-    const totalListings = await Property.countDocuments({ host: hostId });
+    const totalListings = await Property.countDocuments({ host: host._id });
 
     // Calculate average rating
-    const properties = await Property.find({ host: hostId }).select("reviews");
+    const properties = await Property.find({ host: host._id }).select("reviews");
     let totalRating = 0;
     let totalReviews = 0;
 

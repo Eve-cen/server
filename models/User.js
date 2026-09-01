@@ -121,6 +121,9 @@ const userSchema = new mongoose.Schema(
     },
     displayName: String,
     bio: String,
+    // URL-friendly identifier for /host/:slug -- same pattern as Property.slug,
+    // generated from the host's name in routes/profile.js and routes/hosts.js.
+    slug: { type: String, unique: true, sparse: true, trim: true },
     paymentMethods: [paymentMethodSchema],
     payoutMethods: [payoutMethodSchema],
     savedProperties: [{ type: mongoose.Schema.Types.ObjectId, ref: "Property" }],
