@@ -552,7 +552,7 @@ router.post(
           <div style="font-family: 'Manrope', Arial, sans-serif; background-color: #f4f4f7; padding: 20px;">
             <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
               <div style="background-color: #f0f0f0; padding: 20px; text-align: center;">
-                <img src="https://vencome.netlify.app/logo-blue.png" alt="VenCome" style="max-width: 150px;">
+                <img src="https://www.vencome.com/logo-blue.png" alt="VenCome" style="max-width: 150px;">
               </div>
               <div style="padding: 30px; color: #333;">
                 <h2 style="color: #305CDE; text-align: center; margin-top: 0;">
@@ -658,7 +658,7 @@ router.post(
             <div style="font-family: Arial, sans-serif; background-color: #f4f4f7; padding: 20px;">
               <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
                 <div style="background-color: #0A1628; padding: 24px; text-align: center;">
-                  <img src="https://vencome.netlify.app/logo-blue.png" alt="VenCome" style="max-width: 140px;">
+                  <img src="https://www.vencome.com/logo-blue.png" alt="VenCome" style="max-width: 140px;">
                 </div>
                 <div style="padding: 30px; color: #333;">
                   <h2 style="color: #0A1628; text-align: center; margin-top: 0;">
@@ -708,7 +708,7 @@ router.post(
                     booking.status === "pending"
                       ? `
                   <div style="text-align: center; margin: 24px 0;">
-                    <a href="https://vencome.netlify.app/dashboard/bookings" style="background: #0A1628; color: #fff; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 15px;">
+                    <a href="https://www.vencome.com/dashboard/bookings" style="background: #0A1628; color: #fff; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 15px;">
                       Review Booking Request
                     </a>
                   </div>
@@ -1452,7 +1452,7 @@ router.put("/sign-lease/:id", auth, async (req, res) => {
           <div style="font-family: 'Manrope', Arial, sans-serif; background-color: #f4f4f7; padding: 20px;">
             <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
               <div style="background-color: #f0f0f0; padding: 20px; text-align: center;">
-                <img src="https://vencome.netlify.app/logo-blue.png" alt="VenCome" style="max-width: 150px;">
+                <img src="https://www.vencome.com/logo-blue.png" alt="VenCome" style="max-width: 150px;">
               </div>
               <div style="padding: 30px; color: #333;">
                 <h2 style="color: #305CDE; text-align: center; margin-top: 0;">Lease Agreement Signed ✓</h2>

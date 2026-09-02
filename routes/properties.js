@@ -558,7 +558,7 @@ router.post(
           <div style="font-family: 'Manrope', Arial, sans-serif; background-color: #f4f4f7; padding: 20px;">
             <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
               <div style="background-color: #f0f0f0; padding: 20px; text-align: center;">
-                <img src="https://vencome.netlify.app/logo-blue.png" alt="VenCome" style="max-width: 150px;">
+                <img src="https://www.vencome.com/logo-blue.png" alt="VenCome" style="max-width: 150px;">
               </div>
               <div style="padding: 30px; color: #333;">
                 <h2 style="color: #305CDE; text-align: center; margin-top: 0;">Property Created Successfully 🎉</h2>
@@ -1678,7 +1678,7 @@ router.delete("/:id", auth, async (req, res) => {
         <div style="font-family: 'Manrope', Arial, sans-serif; background-color: #f4f4f7; padding: 20px;">
           <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
             <div style="background-color: #f0f0f0; padding: 20px; text-align: center;">
-              <img src="https://vencome.netlify.app/logo-blue.png" alt="VenCome" style="max-width: 150px;">
+              <img src="https://www.vencome.com/logo-blue.png" alt="VenCome" style="max-width: 150px;">
             </div>
             <div style="padding: 30px; color: #333;">
               <h2 style="color: #305CDE; text-align: center; margin-top: 0;">Property Deleted</h2>
