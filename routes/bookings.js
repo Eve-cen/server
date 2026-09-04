@@ -459,6 +459,12 @@ router.post(
       const hostAmount = Math.round((totalPrice - platformFee) * 100) / 100;
 
       // 9. Create booking
+      const isInstantBook = Boolean(property.bookingSettings?.instantBook);
+      // Only pending bookings need a host decision, so only they get a
+      // token -- lets the "New booking request" email carry one-click
+      // Approve/Decline links (see /:id/quick-action below) without the
+      // host having to log in first.
+      const hostActionToken = isInstantBook ? undefined : randomUUID();
       const booking = new Booking({
         property: propertyId,
         guest: guestId,
@@ -503,8 +509,12 @@ router.post(
         // what was agreed to, when, and by whom.
         listingTermsSnapshot: property.listingTerms?.trim() || undefined,
         listingTermsAgreedAt: property.listingTerms?.trim() ? new Date() : undefined,
-        status: property.bookingSettings?.instantBook ? "confirmed" : "pending",
+        status: isInstantBook ? "confirmed" : "pending",
         licensePdfUrl,
+        ...(hostActionToken && {
+          hostActionToken,
+          hostActionTokenExpires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        }),
       });
 
       await booking.save();
@@ -705,13 +715,19 @@ router.post(
                     </table>
                   </div>
                   ${
-                    booking.status === "pending"
+                    booking.status === "pending" && booking.hostActionToken
                       ? `
                   <div style="text-align: center; margin: 24px 0;">
-                    <a href="https://www.vencome.com/dashboard/bookings" style="background: #0A1628; color: #fff; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 15px;">
-                      Review Booking Request
+                    <a href="https://vencome-server.onrender.com/api/bookings/${booking._id}/quick-action?token=${booking.hostActionToken}&action=confirmed" style="background: #16A34A; color: #fff; padding: 14px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 15px; margin-right: 10px; display: inline-block;">
+                      Approve
+                    </a>
+                    <a href="https://vencome-server.onrender.com/api/bookings/${booking._id}/quick-action?token=${booking.hostActionToken}&action=declined" style="background: #fff; color: #DC2626; padding: 14px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 15px; border: 1.5px solid #DC2626; display: inline-block;">
+                      Decline
                     </a>
                   </div>
+                  <p style="text-align: center; margin: 0 0 8px;">
+                    <a href="https://www.vencome.com/dashboard/bookings" style="color: #305CDE; font-size: 13px; text-decoration: none; font-weight: 600;">Or review full details on your dashboard</a>
+                  </p>
                   `
                       : ""
                   }
@@ -818,6 +834,197 @@ router.get("/:id", auth, async (req, res) => {
   }
 });
 
+// Shared by PUT /:id/status (authenticated dashboard action) and
+// /:id/quick-action (token-based one-click email action, added below) --
+// payment capture/release, date blocking, calendar push, socket events, and
+// the guest confirmation/decline email, all in one place so the two entry
+// points can never drift out of sync. Returns { ok: true, booking } or
+// { ok: false, statusCode, error, detail? }.
+async function applyBookingDecision(booking, status, io) {
+  const property = await Property.findById(booking.property);
+  if (!property) return { ok: false, statusCode: 404, error: "Property not found" };
+
+  const previousStatus = booking.status;
+
+  // Request to Book authorizes the card but doesn't capture it (see
+  // routes/payments.js). Resolve that hold here, before committing the
+  // status change, so a failed capture doesn't leave the booking confirmed
+  // with no payment behind it.
+  const awaitingCapture = Boolean(booking.paymentIntentId) && !booking.isPaid;
+
+  if (status === "confirmed" && awaitingCapture) {
+    try {
+      await stripe.paymentIntents.capture(booking.paymentIntentId);
+    } catch (captureErr) {
+      console.error(`Payment capture failed for booking ${booking._id}:`, captureErr.message);
+      return {
+        ok: false,
+        statusCode: 502,
+        error: "Could not charge the guest's card — booking was not confirmed.",
+        detail: captureErr.message,
+      };
+    }
+
+    booking.isPaid = true;
+    const releaseDate = new Date(booking.checkOut);
+    releaseDate.setHours(releaseDate.getHours() + 24);
+    booking.escrowReleaseDate = releaseDate;
+
+    await Payment.findOneAndUpdate(
+      { booking: booking._id },
+      { status: "paid", escrowReleaseAt: releaseDate }
+    );
+  }
+
+  if (status === "declined" && awaitingCapture) {
+    try {
+      await stripe.paymentIntents.cancel(booking.paymentIntentId);
+    } catch (cancelErr) {
+      // Log and continue — the booking should still be declined even if
+      // Stripe's hold was already released/expired on their side.
+      console.error(`Failed to release payment hold for booking ${booking._id}:`, cancelErr.message);
+    }
+
+    await Payment.findOneAndUpdate({ booking: booking._id }, { status: "released" });
+  }
+
+  booking.status = status;
+  // Single-use -- once a decision is made (through either entry point),
+  // the email link must stop working.
+  booking.hostActionToken = undefined;
+  booking.hostActionTokenExpires = undefined;
+  await booking.save();
+
+  if (status === "confirmed") {
+    const updateOps = {};
+
+    const alreadyBlocked = property.blockedDates.some(
+      (b) => b.bookingId?.toString() === booking._id.toString()
+    );
+
+    if (!alreadyBlocked) {
+      updateOps.$push = {
+        blockedDates: {
+          start: booking.checkIn,
+          end: booking.checkOut,
+          reason: "booked",
+          bookingId: booking._id,
+          unitIndex: booking.unitIndex,
+        },
+      };
+    }
+
+    if (
+      property.bookingSettings.approveFirstFive &&
+      property.firstFiveApproved < 5
+    ) {
+      updateOps.$inc = { firstFiveApproved: 1 };
+    }
+
+    if (Object.keys(updateOps).length) {
+      await Property.findByIdAndUpdate(booking.property, updateOps);
+    }
+  }
+
+  // Only confirmed bookings block dates, so only unblock on confirmed → declined
+  if (status === "declined" && previousStatus === "confirmed") {
+    await Property.findByIdAndUpdate(booking.property, {
+      $pull: { blockedDates: { bookingId: booking._id } },
+    });
+  }
+
+  // Push to the host's connected calendar(s), if any. Never block the
+  // booking flow on this -- calendar sync is a convenience, not a
+  // requirement.
+  if (status === "confirmed") {
+    await pushBookingToHostCalendars(booking, property);
+  }
+
+  await booking.populate(["guest", "property"]);
+
+  const eventName = status === "confirmed" ? "bookingConfirmed" : "bookingDeclined";
+  io.to(`guest_${booking.guest._id}`).emit(eventName, booking);
+  io.to(`host_${booking.host.toString()}`).emit(eventName, booking);
+
+  // Send email to guest on approval or decline
+  try {
+    const guestUser = await User.findById(booking.guest._id || booking.guest);
+    if (guestUser?.email) {
+      const guestName = guestUser.displayName || guestUser.firstName || "there";
+      const prop = await Property.findById(booking.property._id || booking.property);
+      const fullAddress = prop?.location ? [prop.location.address, prop.location.city, prop.location.country].filter(Boolean).join(", ") : "";
+
+      if (status === "confirmed") {
+        // Generate invoice PDF
+        let invoiceAttachment = null;
+        try {
+          const invoiceBuffer = await generateInvoicePDF(booking, prop, guestUser, await User.findById(booking.host));
+          invoiceAttachment = {
+            filename: `VenCome-Invoice-${booking._id.toString().slice(-8).toUpperCase()}.pdf`,
+            content: invoiceBuffer,
+            contentType: "application/pdf",
+          };
+        } catch (invoiceErr) {
+          console.error("Invoice generation error:", invoiceErr.message);
+        }
+
+        sendEmail({
+          to: guestUser.email,
+          subject: "Your booking has been confirmed 🎉",
+          attachments: invoiceAttachment ? [invoiceAttachment] : [],
+          html: `
+            <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+              <img src="https://vencome.com/VenCome.jpg" alt="VenCome" style="height:40px;margin-bottom:24px;" />
+              <h2 style="color:#0A1628;">Booking Confirmed 🎉</h2>
+              <p>Hi ${guestName},</p>
+              <p>Great news! The host has confirmed your booking for <strong>${prop?.title || "your space"}</strong>.</p>
+              <table style="width:100%;border-collapse:collapse;margin:20px 0;background:#F8F6F0;border-radius:8px;padding:16px;">
+                <tr><td style="padding:8px 0;color:#666;">Space</td><td style="padding:8px 0;text-align:right;font-weight:700;">${prop?.title || ""}</td></tr>
+                ${fullAddress ? `<tr><td style="padding:8px 0;color:#666;">Full Address</td><td style="padding:8px 0;text-align:right;font-weight:700;color:#305CDE;">${fullAddress}</td></tr>` : ""}
+                <tr><td style="padding:8px 0;color:#666;">Check-in</td><td style="padding:8px 0;text-align:right;font-weight:700;">${new Date(booking.checkIn).toLocaleDateString()}</td></tr>
+                <tr><td style="padding:8px 0;color:#666;">Check-out</td><td style="padding:8px 0;text-align:right;font-weight:700;">${new Date(booking.checkOut).toLocaleDateString()}</td></tr>
+                <tr><td style="padding:8px 0;color:#666;">Total Paid</td><td style="padding:8px 0;text-align:right;font-weight:700;">£${booking.totalPrice}</td></tr>
+              </table>
+              <p>Your payment is securely held in escrow and will be released to the host after your booking is completed.</p>
+              <a href="https://www.vencome.com/customer/bookings" style="display:inline-block;padding:14px 28px;background:#305CDE;color:#fff;text-decoration:none;border-radius:10px;font-weight:700;">View My Booking</a>
+              <p style="margin-top:24px;color:#6B7280;font-size:13px;">The VenCome Team</p>
+            </div>
+          `,
+        });
+
+        if (guestUser.phoneNumber && guestUser.isPhoneVerified) {
+          sendSMS({
+            to: guestUser.phoneNumber,
+            body: `VenCome: Your booking at "${prop?.title || "your space"}" is confirmed! Check-in ${new Date(booking.checkIn).toLocaleDateString()}.`,
+          }).catch((err) => {
+            if (err.code !== "SMS_NOT_CONFIGURED") console.error("Booking-approved SMS to guest failed:", err.message);
+          });
+        }
+      } else if (status === "declined") {
+        sendEmail({
+          to: guestUser.email,
+          subject: "Your booking request was declined",
+          html: `
+            <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+              <img src="https://vencome.com/VenCome.jpg" alt="VenCome" style="height:40px;margin-bottom:24px;" />
+              <h2 style="color:#0A1628;">Booking Not Confirmed</h2>
+              <p>Hi ${guestName},</p>
+              <p>Unfortunately, the host was unable to confirm your booking request for <strong>${prop?.title || "the space"}</strong>.</p>
+              <p>You have not been charged. If a payment was captured, a full refund will be processed within 5-10 business days.</p>
+              <a href="https://www.vencome.com/search" style="display:inline-block;padding:14px 28px;background:#0A1628;color:#fff;text-decoration:none;border-radius:10px;font-weight:700;">Find Another Space</a>
+              <p style="margin-top:24px;color:#6B7280;font-size:13px;">The VenCome Team</p>
+            </div>
+          `,
+        });
+      }
+    }
+  } catch (emailErr) {
+    console.error("Approval email error:", emailErr.message);
+  }
+
+  return { ok: true, booking };
+}
+
 // PUT: Host approve/decline
 router.put("/:id/status", auth, async (req, res) => {
   const { status } = req.body;
@@ -833,187 +1040,161 @@ router.put("/:id/status", auth, async (req, res) => {
       return res.status(400).json({ error: "Invalid status" });
     }
 
-    const property = await Property.findById(booking.property);
-    if (!property) return res.status(404).json({ error: "Property not found" });
-
-    const previousStatus = booking.status;
-
-    // Request to Book authorizes the card but doesn't capture it (see
-    // routes/payments.js). Resolve that hold here, before committing the
-    // status change, so a failed capture doesn't leave the booking confirmed
-    // with no payment behind it.
-    const awaitingCapture = Boolean(booking.paymentIntentId) && !booking.isPaid;
-
-    if (status === "confirmed" && awaitingCapture) {
-      try {
-        await stripe.paymentIntents.capture(booking.paymentIntentId);
-      } catch (captureErr) {
-        console.error(`Payment capture failed for booking ${booking._id}:`, captureErr.message);
-        return res.status(502).json({
-          error: "Could not charge the guest's card — booking was not confirmed.",
-          detail: captureErr.message,
-        });
-      }
-
-      booking.isPaid = true;
-      const releaseDate = new Date(booking.checkOut);
-      releaseDate.setHours(releaseDate.getHours() + 24);
-      booking.escrowReleaseDate = releaseDate;
-
-      await Payment.findOneAndUpdate(
-        { booking: booking._id },
-        { status: "paid", escrowReleaseAt: releaseDate }
-      );
+    const result = await applyBookingDecision(booking, status, req.app.get("io"));
+    if (!result.ok) {
+      return res
+        .status(result.statusCode)
+        .json({ error: result.error, ...(result.detail && { detail: result.detail }) });
     }
 
-    if (status === "declined" && awaitingCapture) {
-      try {
-        await stripe.paymentIntents.cancel(booking.paymentIntentId);
-      } catch (cancelErr) {
-        // Log and continue — the booking should still be declined even if
-        // Stripe's hold was already released/expired on their side.
-        console.error(`Failed to release payment hold for booking ${booking._id}:`, cancelErr.message);
-      }
-
-      await Payment.findOneAndUpdate({ booking: booking._id }, { status: "released" });
-    }
-
-    booking.status = status;
-    await booking.save();
-
-    if (status === "confirmed") {
-      const updateOps = {};
-
-      const alreadyBlocked = property.blockedDates.some(
-        (b) => b.bookingId?.toString() === booking._id.toString()
-      );
-
-      if (!alreadyBlocked) {
-        updateOps.$push = {
-          blockedDates: {
-            start: booking.checkIn,
-            end: booking.checkOut,
-            reason: "booked",
-            bookingId: booking._id,
-            unitIndex: booking.unitIndex,
-          },
-        };
-      }
-
-      if (
-        property.bookingSettings.approveFirstFive &&
-        property.firstFiveApproved < 5
-      ) {
-        updateOps.$inc = { firstFiveApproved: 1 };
-      }
-
-      if (Object.keys(updateOps).length) {
-        await Property.findByIdAndUpdate(booking.property, updateOps);
-      }
-    }
-
-    // Only confirmed bookings block dates, so only unblock on confirmed → declined
-    if (status === "declined" && previousStatus === "confirmed") {
-      await Property.findByIdAndUpdate(booking.property, {
-        $pull: { blockedDates: { bookingId: booking._id } },
-      });
-    }
-
-    // Push to the host's connected calendar(s), if any. Never block the
-    // booking flow on this -- calendar sync is a convenience, not a
-    // requirement.
-    if (status === "confirmed") {
-      await pushBookingToHostCalendars(booking, property);
-    }
-
-    await booking.populate(["guest", "property"]);
-
-    const io = req.app.get("io");
-    const eventName =
-      status === "confirmed" ? "bookingConfirmed" : "bookingDeclined";
-    io.to(`guest_${booking.guest._id}`).emit(eventName, booking);
-    io.to(`host_${req.user.id}`).emit(eventName, booking);
-
-    // Send email to guest on approval or decline
-    try {
-      const guestUser = await User.findById(booking.guest._id || booking.guest);
-      if (guestUser?.email) {
-        const guestName = guestUser.displayName || guestUser.firstName || "there";
-        const prop = await Property.findById(booking.property._id || booking.property);
-        const fullAddress = prop?.location ? [prop.location.address, prop.location.city, prop.location.country].filter(Boolean).join(", ") : "";
-
-        if (status === "confirmed") {
-          // Generate invoice PDF
-          let invoiceAttachment = null;
-          try {
-            const invoiceBuffer = await generateInvoicePDF(booking, prop, guestUser, await User.findById(booking.host));
-            invoiceAttachment = {
-              filename: `VenCome-Invoice-${booking._id.toString().slice(-8).toUpperCase()}.pdf`,
-              content: invoiceBuffer,
-              contentType: "application/pdf",
-            };
-          } catch (invoiceErr) {
-            console.error("Invoice generation error:", invoiceErr.message);
-          }
-
-          sendEmail({
-            to: guestUser.email,
-            subject: "Your booking has been confirmed 🎉",
-            attachments: invoiceAttachment ? [invoiceAttachment] : [],
-            html: `
-              <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
-                <img src="https://vencome.com/VenCome.jpg" alt="VenCome" style="height:40px;margin-bottom:24px;" />
-                <h2 style="color:#0A1628;">Booking Confirmed 🎉</h2>
-                <p>Hi ${guestName},</p>
-                <p>Great news! The host has confirmed your booking for <strong>${prop?.title || "your space"}</strong>.</p>
-                <table style="width:100%;border-collapse:collapse;margin:20px 0;background:#F8F6F0;border-radius:8px;padding:16px;">
-                  <tr><td style="padding:8px 0;color:#666;">Space</td><td style="padding:8px 0;text-align:right;font-weight:700;">${prop?.title || ""}</td></tr>
-                  ${fullAddress ? `<tr><td style="padding:8px 0;color:#666;">Full Address</td><td style="padding:8px 0;text-align:right;font-weight:700;color:#305CDE;">${fullAddress}</td></tr>` : ""}
-                  <tr><td style="padding:8px 0;color:#666;">Check-in</td><td style="padding:8px 0;text-align:right;font-weight:700;">${new Date(booking.checkIn).toLocaleDateString()}</td></tr>
-                  <tr><td style="padding:8px 0;color:#666;">Check-out</td><td style="padding:8px 0;text-align:right;font-weight:700;">${new Date(booking.checkOut).toLocaleDateString()}</td></tr>
-                  <tr><td style="padding:8px 0;color:#666;">Total Paid</td><td style="padding:8px 0;text-align:right;font-weight:700;">£${booking.totalPrice}</td></tr>
-                </table>
-                <p>Your payment is securely held in escrow and will be released to the host after your booking is completed.</p>
-                <a href="https://www.vencome.com/customer/bookings" style="display:inline-block;padding:14px 28px;background:#305CDE;color:#fff;text-decoration:none;border-radius:10px;font-weight:700;">View My Booking</a>
-                <p style="margin-top:24px;color:#6B7280;font-size:13px;">The VenCome Team</p>
-              </div>
-            `,
-          });
-
-          if (guestUser.phoneNumber && guestUser.isPhoneVerified) {
-            sendSMS({
-              to: guestUser.phoneNumber,
-              body: `VenCome: Your booking at "${prop?.title || "your space"}" is confirmed! Check-in ${new Date(booking.checkIn).toLocaleDateString()}.`,
-            }).catch((err) => {
-              if (err.code !== "SMS_NOT_CONFIGURED") console.error("Booking-approved SMS to guest failed:", err.message);
-            });
-          }
-        } else if (status === "declined") {
-          sendEmail({
-            to: guestUser.email,
-            subject: "Your booking request was declined",
-            html: `
-              <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
-                <img src="https://vencome.com/VenCome.jpg" alt="VenCome" style="height:40px;margin-bottom:24px;" />
-                <h2 style="color:#0A1628;">Booking Not Confirmed</h2>
-                <p>Hi ${guestName},</p>
-                <p>Unfortunately, the host was unable to confirm your booking request for <strong>${prop?.title || "the space"}</strong>.</p>
-                <p>You have not been charged. If a payment was captured, a full refund will be processed within 5-10 business days.</p>
-                <a href="https://www.vencome.com/search" style="display:inline-block;padding:14px 28px;background:#0A1628;color:#fff;text-decoration:none;border-radius:10px;font-weight:700;">Find Another Space</a>
-                <p style="margin-top:24px;color:#6B7280;font-size:13px;">The VenCome Team</p>
-              </div>
-            `,
-          });
-        }
-      }
-    } catch (emailErr) {
-      console.error("Approval email error:", emailErr.message);
-    }
-
-    res.json(booking);
+    res.json(result.booking);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Minimal branded HTML page used by the token-based quick-action routes
+// below -- these are opened straight from an email, so they can't reuse the
+// React client (no auth session to render the dashboard).
+function quickActionPage({ title, body }) {
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${title} — VenCome</title>
+</head>
+<body style="font-family: Arial, sans-serif; background: #F8F6F0; margin: 0; padding: 40px 20px;">
+  <div style="max-width: 480px; margin: 0 auto; background: #fff; border-radius: 12px; padding: 32px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); text-align: center;">
+    <img src="https://www.vencome.com/logo-blue.png" alt="VenCome" style="max-width: 130px; margin-bottom: 24px;">
+    <h1 style="color: #0A1628; font-size: 20px; margin: 0 0 12px;">${title}</h1>
+    <div style="color: #333; font-size: 15px; line-height: 1.6;">${body}</div>
+    <p style="margin-top: 28px;"><a href="https://www.vencome.com/dashboard/bookings" style="color: #305CDE; font-weight: 600; text-decoration: none;">Go to your dashboard</a></p>
+  </div>
+</body>
+</html>`;
+}
+
+// GET: one-click email action landing page. Renders a confirmation screen
+// with a real button (which POSTs) rather than performing the action on
+// GET itself, so an email client's link-prefetch/security scanner can't
+// silently approve or decline a booking just by following the link.
+router.get("/:id/quick-action", async (req, res) => {
+  const { token, action } = req.query;
+  const label = action === "confirmed" ? "Approve" : action === "declined" ? "Decline" : null;
+
+  res.set("Content-Type", "text/html");
+
+  try {
+    if (!token || !label) {
+      return res.status(400).send(quickActionPage({
+        title: "Invalid link",
+        body: "This link is missing or has an invalid action.",
+      }));
+    }
+
+    const booking = await Booking.findById(req.params.id).populate("property");
+    if (!booking || !booking.hostActionToken || booking.hostActionToken !== token) {
+      return res.status(404).send(quickActionPage({
+        title: "Link not found",
+        body: "This booking link is invalid or has already been used.",
+      }));
+    }
+    if (booking.hostActionTokenExpires && booking.hostActionTokenExpires < new Date()) {
+      return res.status(410).send(quickActionPage({
+        title: "Link expired",
+        body: "This link has expired. Please log in to your VenCome dashboard to respond to this booking.",
+      }));
+    }
+    if (booking.status !== "pending") {
+      return res.send(quickActionPage({
+        title: "Already handled",
+        body: `This booking has already been ${booking.status}.`,
+      }));
+    }
+
+    res.send(quickActionPage({
+      title: `${label} this booking?`,
+      body: `
+        <p>${booking.property?.title || "This space"}<br>
+        ${new Date(booking.checkIn).toLocaleDateString()} – ${new Date(booking.checkOut).toLocaleDateString()}</p>
+        <form method="POST" action="/api/bookings/${booking._id}/quick-action">
+          <input type="hidden" name="token" value="${token}">
+          <input type="hidden" name="action" value="${action}">
+          <button type="submit" style="margin-top: 12px; padding: 14px 32px; background: ${action === "confirmed" ? "#16A34A" : "#DC2626"}; color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 700; cursor: pointer;">
+            Yes, ${label.toLowerCase()} booking
+          </button>
+        </form>
+      `,
+    }));
+  } catch (err) {
+    console.error("Quick-action GET error:", err);
+    res.status(500).send(quickActionPage({
+      title: "Something went wrong",
+      body: "Please try again or log in to your dashboard.",
+    }));
+  }
+});
+
+// POST: actually performs the approve/decline from the confirmation page
+// above. Same token checks as the GET above, repeated -- the GET only ever
+// rendered a form, it never validated on the caller's behalf.
+router.post("/:id/quick-action", express.urlencoded({ extended: false }), async (req, res) => {
+  const { token, action } = req.body;
+  const status = action === "confirmed" ? "confirmed" : action === "declined" ? "declined" : null;
+
+  res.set("Content-Type", "text/html");
+
+  try {
+    if (!token || !status) {
+      return res.status(400).send(quickActionPage({
+        title: "Invalid request",
+        body: "This action is invalid.",
+      }));
+    }
+
+    const booking = await Booking.findById(req.params.id);
+    if (!booking || !booking.hostActionToken || booking.hostActionToken !== token) {
+      return res.status(404).send(quickActionPage({
+        title: "Link not found",
+        body: "This booking link is invalid or has already been used.",
+      }));
+    }
+    if (booking.hostActionTokenExpires && booking.hostActionTokenExpires < new Date()) {
+      return res.status(410).send(quickActionPage({
+        title: "Link expired",
+        body: "This link has expired. Please log in to your VenCome dashboard to respond to this booking.",
+      }));
+    }
+    if (booking.status !== "pending") {
+      return res.send(quickActionPage({
+        title: "Already handled",
+        body: `This booking has already been ${booking.status}.`,
+      }));
+    }
+
+    const result = await applyBookingDecision(booking, status, req.app.get("io"));
+    if (!result.ok) {
+      return res.status(result.statusCode).send(quickActionPage({
+        title: "Something went wrong",
+        body: result.error,
+      }));
+    }
+
+    res.send(quickActionPage({
+      title: status === "confirmed" ? "Booking approved ✓" : "Booking declined",
+      body:
+        status === "confirmed"
+          ? "The guest has been notified and charged. You can view full details on your dashboard."
+          : "The guest has been notified. You can view full details on your dashboard.",
+    }));
+  } catch (err) {
+    console.error("Quick-action POST error:", err);
+    res.status(500).send(quickActionPage({
+      title: "Something went wrong",
+      body: "Please try again or log in to your dashboard.",
+    }));
   }
 });
 
